@@ -26,6 +26,8 @@ const (
 	ViewsMethod = "symphony.views"
 	// StopMethod asks the daemon to exit
 	StopMethod = "symphony.stop"
+	// VersionMethod answers the build id of the binary the daemon runs from
+	VersionMethod = "symphony.version"
 )
 
 // stopDelay gives the stop reply time to reach the caller before the listener closes
@@ -41,6 +43,8 @@ type Server struct {
 	stop chan struct{}
 	// Guards the close of stop
 	once sync.Once
+	// The build id the daemon reports, empty when unknown
+	Version string
 }
 
 /**
@@ -131,6 +135,7 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 			return r.ToMap(), nil
 		}),
 		ep.Register(ViewsMethod, func() ([]string, error) { return s.reg.Names(), nil }),
+		ep.Register(VersionMethod, func() (string, error) { return s.Version, nil }),
 		ep.Register(StopMethod, func() (bool, error) {
 			time.AfterFunc(stopDelay, s.Stop)
 			return true, nil

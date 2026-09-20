@@ -11,6 +11,7 @@ import (
 
 	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/host"
+	"github.com/choice404/symphony/internal/launch"
 	"github.com/choice404/symphony/internal/rpc"
 )
 
@@ -55,13 +56,24 @@ func run() error {
 	defer stop()
 	// The log goes to stderr, the launcher points that at a file
 	logger := log.New(os.Stderr, "", log.LstdFlags)
-	// Read the config
+	// Read the config once so a broken file is reported at start
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
+	// Every later read goes back to the file, a bad edit keeps the last good config and is logged
+	last := cfg
+	load := func() config.Config {
+		c, err := config.Load()
+		if err != nil {
+			logger.Printf("config: %v, keeping the last good one", err)
+			return last
+		}
+		last = c
+		return c
+	}
 	// Build the views and keep their closer for the way out
-	reg, closeViews, err := host.Views(cfg, logger.Printf)
+	reg, closeViews, err := host.Views(load, logger.Printf)
 	if err != nil {
 		return err
 	}
@@ -76,8 +88,11 @@ func run() error {
 		return err
 	}
 	logger.Printf("listening on %s", sock)
-	// Serve
+	// Serve, reporting this binary's build id so a TUI can tell a stale daemon apart
 	srv := host.NewServer(reg, logger.Printf)
+	if exe, err := os.Executable(); err == nil {
+		srv.Version, _ = launch.BuildID(exe)
+	}
 	err = srv.Serve(ctx, ln)
 	// Leave nothing behind
 	_ = os.Remove(sock)
@@ -123,11 +138,13 @@ func status() error {
 	if err := c.Call(host.PingMethod, &reply); err != nil {
 		return fmt.Errorf("ping: %w", err)
 	}
-	// Report the socket and the views
+	// Report the socket, the views, and the build
 	sock, _ := rpc.SocketPath()
 	var names []string
 	_ = c.Call(host.ViewsMethod, &names)
-	fmt.Printf("running on %s, views: %v\n", sock, names)
+	var version string
+	_ = c.Call(host.VersionMethod, &version)
+	fmt.Printf("running on %s, views: %v, build %s\n", sock, names, version)
 	return nil
 }
 

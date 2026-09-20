@@ -27,14 +27,16 @@ const (
 type Contract struct {
 	// The runtime the module is loaded in
 	rt *geas.Runtime
-	// The Maildir root handed over as the maildir vow
-	dir string
+	// Returns the Maildir root as configured right now, handed over as the maildir vow at sign
+	dir func() string
 	// Whether classify is bound, so every listed message gets a label
 	labels bool
 	// Guards the instance and the last list
 	mu sync.Mutex
 	// The signed instance, nil before the first render
 	inst *geas.Instance
+	// The maildir the instance was signed with, a change re-signs
+	signedDir string
 	// The last list, replaced whole on every render
 	last []Message
 }
@@ -81,11 +83,11 @@ func Bind(rt *geas.Runtime) error {
  * NewContract
  * Builds the contract backed mail view
  * @param rt {*geas.Runtime} - the runtime with the module loaded and the pledges bound
- * @param dir {string} - the Maildir root, empty when not configured
+ * @param dir {func() string} - returns the Maildir root, called on every render so a config edit re-signs without a restart
  * @param labels {bool} - whether classify is bound and every message should carry a label
  * @return *Contract
  **/
-func NewContract(rt *geas.Runtime, dir string, labels bool) *Contract {
+func NewContract(rt *geas.Runtime, dir func() string, labels bool) *Contract {
 	return &Contract{rt: rt, dir: dir, labels: labels}
 }
 
@@ -206,13 +208,21 @@ func (c *Contract) open(key string) (view.Response, error) {
 func (c *Contract) list() ([]Message, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	// The maildir as configured right now, a change since the sign breaks the old instance
+	dir := c.dir()
+	if c.inst != nil && dir != c.signedDir {
+		_ = c.inst.Break()
+		c.inst = nil
+		c.last = nil
+	}
 	// Sign once and run the configured check, which breaks the contract when the vow is empty
 	if c.inst == nil {
-		inst, err := c.rt.Sign(ContractName, map[string]geas.Value{"maildir": c.dir})
+		inst, err := c.rt.Sign(ContractName, map[string]geas.Value{"maildir": dir})
 		if err != nil {
 			return nil, fmt.Errorf("sign: %w", err)
 		}
 		c.inst = inst
+		c.signedDir = dir
 		if v, err := inst.Fulfill("configured"); err == nil {
 			if r, _ := v.(geas.Result); !r.Ok {
 				return nil, fmt.Errorf("%s: %s", strings.ToLower(inst.State().String()), describeError(r.Value))

@@ -47,7 +47,7 @@ func TestDuskClassifyLabels(t *testing.T) {
 
 func TestDuskLabelsInInbox(t *testing.T) {
 	rt := duskRuntime(t)
-	c := NewContract(rt, fixture(t), true)
+	c := NewContract(rt, Fixed(fixture(t)), true)
 	p, err := c.Render(context.Background())
 	if err != nil {
 		t.Fatal(err)

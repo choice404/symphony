@@ -42,7 +42,7 @@ func mailRuntime(t *testing.T) *geas.Runtime {
 
 func TestContractListsAndOpens(t *testing.T) {
 	rt := mailRuntime(t)
-	c := NewContract(rt, fixture(t), false)
+	c := NewContract(rt, Fixed(fixture(t)), false)
 	ctx := context.Background()
 	// The summary carries the runtime state and the counts
 	if got := c.Summary(ctx); got != "partial, 4 messages, 1 unread" {
@@ -70,7 +70,7 @@ func TestContractListsAndOpens(t *testing.T) {
 
 func TestContractNotConfiguredBreaks(t *testing.T) {
 	rt := mailRuntime(t)
-	c := NewContract(rt, "", false)
+	c := NewContract(rt, Fixed(""), false)
 	ctx := context.Background()
 	// The configured pledge errs and the requirements break the contract
 	got := c.Summary(ctx)
@@ -91,7 +91,7 @@ func TestContractNotConfiguredBreaks(t *testing.T) {
 func TestContractMissingMaildirBreaksAndRefreshResigns(t *testing.T) {
 	rt := mailRuntime(t)
 	missing := filepath.Join(t.TempDir(), "nope")
-	c := NewContract(rt, missing, false)
+	c := NewContract(rt, Fixed(missing), false)
 	ctx := context.Background()
 	// list errs with Missing and the inbox subcontract breaks the contract
 	got := c.Summary(ctx)

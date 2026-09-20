@@ -10,14 +10,14 @@ import (
 
 /**
  * Views
- * Builds every view from the config, this build reads the Maildir straight from Go
- * @param cfg {config.Config} - the config
+ * Builds every view over a config loader, this build reads the Maildir straight from Go
+ * @param load {func() config.Config} - returns the current config, called on every render so an edit lands without a restart
  * @param logf {func(string, ...interface{})} - where log lines go
  * @return view.Registry, func(), error
  **/
-func Views(cfg config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
+func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
 	// Assemble around the plain mail view
-	reg, err := assemble(mail.NewView(cfg.Mail.Maildir))
+	reg, err := assemble(mail.NewView(func() string { return load().Mail.Maildir }))
 	if err != nil {
 		return view.Registry{}, nil, err
 	}

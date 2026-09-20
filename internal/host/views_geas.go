@@ -19,17 +19,19 @@ const mailModule = "libmail.geas.so"
 
 /**
  * Views
- * Builds every view from the config, this build runs mail through its contract when the module is found and falls back to plain Go when it is not
- * @param cfg {config.Config} - the config
+ * Builds every view over a config loader, this build runs mail through its contract when the module is found and falls back to plain Go when it is not
+ * @param load {func() config.Config} - returns the current config, called on every render so an edit lands without a restart
  * @param logf {func(string, ...interface{})} - where log lines go
  * @return view.Registry, func(), error
  **/
-func Views(cfg config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
-	// Find the module
-	module, err := findModule(cfg)
+func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
+	// The maildir as the config says right now
+	maildir := func() string { return load().Mail.Maildir }
+	// Find the module, the contract path is read once since the runtime loads it once
+	module, err := findModule(load())
 	if err != nil {
 		logf("geas: %v, mail runs without the contract", err)
-		reg, err := assemble(mail.NewView(cfg.Mail.Maildir))
+		reg, err := assemble(mail.NewView(maildir))
 		return reg, func() {}, err
 	}
 	// Bring up the runtime and load it
@@ -57,7 +59,7 @@ func Views(cfg config.Config, logf func(string, ...interface{})) (view.Registry,
 	}
 	logf("geas: mail runs through %s", module)
 	// Assemble around the contract view
-	reg, err := assemble(mail.NewContract(rt, cfg.Mail.Maildir, labels))
+	reg, err := assemble(mail.NewContract(rt, maildir, labels))
 	if err != nil {
 		rt.Shutdown()
 		return view.Registry{}, nil, err

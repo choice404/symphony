@@ -13,8 +13,8 @@ const ViewName = "mail"
 
 // View shows a Maildir as an inbox page and opens messages as pages
 type View struct {
-	// The Maildir root, empty when not configured
-	dir string
+	// Returns the Maildir root as configured right now, empty when not configured
+	dir func() string
 	// The last scan, replaced whole on every refresh and never edited
 	last atomic.Pointer[[]Message]
 }
@@ -22,11 +22,21 @@ type View struct {
 /**
  * NewView
  * Builds the mail view over a Maildir
- * @param dir {string} - the Maildir root, empty when not configured
+ * @param dir {func() string} - returns the Maildir root, called on every render so a config edit lands without a restart
  * @return *View
  **/
-func NewView(dir string) *View {
+func NewView(dir func() string) *View {
 	return &View{dir: dir}
+}
+
+/**
+ * Fixed
+ * Wraps a path as a dir function that never changes, for tests and callers with one path
+ * @param dir {string} - the Maildir root
+ * @return func() string
+ **/
+func Fixed(dir string) func() string {
+	return func() string { return dir }
 }
 
 /**
@@ -46,7 +56,7 @@ func (v *View) Name() string {
  **/
 func (v *View) Summary(ctx context.Context) string {
 	// Say so when nothing is configured
-	if v.dir == "" {
+	if v.dir() == "" {
 		return "not configured"
 	}
 	// Scan
@@ -66,7 +76,7 @@ func (v *View) Summary(ctx context.Context) string {
  **/
 func (v *View) Render(ctx context.Context) (view.Page, error) {
 	// Explain the config when there is no Maildir
-	if v.dir == "" {
+	if v.dir() == "" {
 		return unconfiguredPage, nil
 	}
 	// Scan
@@ -131,8 +141,8 @@ func (v *View) open(key string) (view.Response, error) {
  * @return []Message, error
  **/
 func (v *View) scan() ([]Message, error) {
-	// Scan
-	msgs, err := Scan(v.dir)
+	// Scan the directory as configured right now
+	msgs, err := Scan(v.dir())
 	if err != nil {
 		return nil, err
 	}

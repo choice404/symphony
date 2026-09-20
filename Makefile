@@ -10,7 +10,11 @@ DUSK ?= dusk
 PLUGINS := plugins/mail/classify.dusk
 ARCHIVES := $(OUT)/dusk-out/libclassify.a
 
-.PHONY: build geas dusk contracts plugins test test-geas test-dusk lint run clean
+PREFIX ?= $(HOME)/.local
+BINDIR := $(PREFIX)/bin
+CONTRACTDIR := $(PREFIX)/share/symphony/contracts
+
+.PHONY: build geas dusk contracts plugins install test test-geas test-dusk lint run clean
 
 # Both binaries, plain
 build:
@@ -42,6 +46,12 @@ dusk: contracts plugins
 	$(GO) build -tags "geas dusk" -o $(OUT)/symphonyd ./cmd/symphonyd
 	mkdir -p $(OUT)/contracts
 	cp $(MODULES) $(OUT)/contracts/
+
+# Copies whatever was last built into ~/.local, the binaries and the contract modules
+install:
+	mkdir -p $(BINDIR) $(CONTRACTDIR)
+	cp $(OUT)/symphony $(OUT)/symphonyd $(BINDIR)/
+	if [ -d $(OUT)/contracts ]; then cp $(OUT)/contracts/*.so $(CONTRACTDIR)/; fi
 
 # The plain suite plus the plugin tests
 test:

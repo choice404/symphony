@@ -104,7 +104,7 @@ func TestOpenBodies(t *testing.T) {
 }
 
 func TestViewUnconfigured(t *testing.T) {
-	v := NewView("")
+	v := NewView(Fixed(""))
 	p, err := v.Render(context.Background())
 	if err != nil || !strings.Contains(p.Lines[0], "not configured") {
 		t.Fatalf("page = %+v %v", p, err)
@@ -115,7 +115,7 @@ func TestViewUnconfigured(t *testing.T) {
 }
 
 func TestViewListAndOpen(t *testing.T) {
-	v := NewView(fixture(t))
+	v := NewView(Fixed(fixture(t)))
 	ctx := context.Background()
 	if got := v.Summary(ctx); got != "4 messages, 1 unread" {
 		t.Fatalf("summary = %q", got)
@@ -157,5 +157,19 @@ func TestViewListAndOpen(t *testing.T) {
 	resp, _ = v.Act(ctx, "refresh", "")
 	if resp.Kind != view.KindPage || len(resp.Page.Lines) != 6 {
 		t.Fatalf("refresh = %+v", resp)
+	}
+}
+
+func TestViewFollowsDirChanges(t *testing.T) {
+	// The dir function answers whatever the config says right now
+	dir := ""
+	v := NewView(func() string { return dir })
+	ctx := context.Background()
+	if got := v.Summary(ctx); got != "not configured" {
+		t.Fatalf("before = %q", got)
+	}
+	dir = fixture(t)
+	if got := v.Summary(ctx); got != "4 messages, 1 unread" {
+		t.Fatalf("after = %q", got)
 	}
 }
