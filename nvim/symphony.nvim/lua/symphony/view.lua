@@ -7,6 +7,9 @@ local rpc = require("symphony.rpc")
 -- The prefix of every symphony buffer name
 M.prefix = "symphony://"
 
+-- The buffers left behind by show, newest last, so back climbs the way you came
+M.history = {}
+
 -- Finds the buffer for a page name or creates a scratch one
 local function buffer_for(name)
   -- The buffer name
@@ -77,6 +80,11 @@ function M.show(page)
   vim.b[buf].symphony_title = page.title
   -- Set the keymaps
   M.keymaps(buf)
+  -- Remember the symphony buffer being left, a refresh of the same page leaves nothing
+  local cur = vim.api.nvim_get_current_buf()
+  if cur ~= buf and vim.b[cur].symphony_view then
+    table.insert(M.history, cur)
+  end
   -- Show it
   vim.api.nvim_set_current_buf(buf)
   -- Put the cursor on the page's line, clamped to the buffer
@@ -140,17 +148,20 @@ function M.act(action)
   M.apply(resp)
 end
 
--- Goes to the previous listed buffer, or home when there is none
+-- Goes back along the history, or home when there is nothing left
 function M.back()
-  -- The alternate buffer
-  local prev = vim.fn.bufnr("#")
-  -- Use it when it is a real listed buffer
-  if prev ~= -1 and prev ~= vim.api.nvim_get_current_buf() and vim.api.nvim_buf_is_valid(prev) and vim.fn.buflisted(prev) == 1 then
-    vim.api.nvim_set_current_buf(prev)
-    return
+  -- Pop until a live buffer turns up
+  while #M.history > 0 do
+    local prev = table.remove(M.history)
+    if prev ~= vim.api.nvim_get_current_buf() and vim.api.nvim_buf_is_valid(prev) then
+      vim.api.nvim_set_current_buf(prev)
+      return
+    end
   end
-  -- Otherwise go home
-  M.open("home")
+  -- Nothing behind, go home unless already there
+  if vim.b[0].symphony_view ~= "home" then
+    M.open("home")
+  end
 end
 
 return M

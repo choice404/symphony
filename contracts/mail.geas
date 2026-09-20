@@ -1,0 +1,55 @@
+// The mail service as a contract. The host binds list and open, the two
+// pledges that touch the disk and read the maildir vow to find it, and the
+// contract owns the rest: the vow, the configured check, the inbox and reading
+// subcontracts, and the requirements that make the runtime's state the health
+// of the service.
+
+record Message {
+    id: String
+    path: String
+    sender: String
+    subject: String
+    date: Int
+    seen: Bool
+    flagged: Bool
+    replied: Bool
+}
+
+record Opened {
+    id: String
+    sender: String
+    to: String
+    subject: String
+    date: Int
+    body: String
+}
+
+MailError is either NotConfigured or Missing(path: String) or Unreadable(detail: String)
+
+contract Mailbox {
+    vow maildir: String = ""
+
+    // Fulfilled first by the host, breaks the contract when no maildir was given
+    pledge configured() -> Result<Bool, MailError> {
+        if maildir == "" {
+            return Err(NotConfigured)
+        }
+        return Ok(true)
+    }
+
+    subcontract Inbox {
+        // Host bound, reads the cur and new folders of the maildir vow
+        pledge list() -> Result<List<Message>, MailError>
+    }
+
+    subcontract Reading {
+        // Host bound, reads one message file in full
+        pledge open(path: String) -> Result<Opened, MailError>
+    }
+
+    requirements {
+        fulfill: configured && Inbox && Reading
+        partial: configured && Inbox
+        break: !configured || !Inbox
+    }
+}

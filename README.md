@@ -32,12 +32,19 @@ symphonyd holds the views and answers over a unix socket at $XDG_RUNTIME_DIR/sym
 
 Because the socket speaks msgpack rpc, a normal nvim can use it too. Put nvim/symphony.nvim on your runtimepath like any other plugin, start symphonyd, and :Symphony mail dials the socket and shows the inbox in that nvim, no TUI needed. :Symphony connect takes a socket path when it is not the default, :Symphony status says whether you are attached, and :checkhealth symphony shows the socket and pings the daemon.
 
+# Contracts
+
+Service plugins are geas contracts (github.com/choice404/geas). The mail service is one, contracts/mail.geas: the maildir is a vow, list and open are pledges the daemon binds to Go, configured is a pledge whose body runs in geas, and the requirements block turns the runtime's state into the health you see on the home page, signed, partial, fulfilled, or broken with the error that broke it. The plain build never touches the runtime. make geas builds the contracts with the geas compiler, links libgeasrt in through cgo with the geas build tag, and copies the modules beside the binaries where the daemon looks for them, or set contracts under [geas] in the config to point somewhere else. When no module is found the daemon logs it and mail runs the plain way.
+
 # Config
 
 The config lives at ~/.config/symphony/config.toml and is optional, a missing file is the empty config.
 
 [mail]
 maildir = "~/Mail/inbox"
+
+[geas]
+contracts = "~/.local/share/symphony/contracts"
 
 Mail reads a Maildir straight off disk, the cur and new folders, so anything that syncs one works, such as mbsync, offlineimap, etc. The inbox page lists messages newest first with N for unread, F for flagged, and R for replied, and opening one shows the headers and the plain text part, or the html part with its tags stripped when there is no plain one. Without a maildir the mail page says how to set one.
 
@@ -50,4 +57,4 @@ The Go tests spawn a real nvim with --clean and check the screen, the cursor, a 
 
 # Status
 
-Step 2 of 5, nvim embedded and drawn, every app is a page the plugin shows as a buffer, and mail reads a Maildir. Next is the daemon split, then the geas binding, then a dusk plugin body.
+Step 4 of 5, nvim embedded and drawn, every app is a page the plugin shows as a buffer, the daemon serves them over a socket, and mail runs as a geas contract when built with make geas. Next is a dusk plugin body behind abi c.

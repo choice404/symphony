@@ -213,14 +213,21 @@ tests.act_applies_notify = function()
   assert_eq(seen.level, vim.log.levels.ERROR, "level")
 end
 
--- Back returns to the previous listed buffer
-tests.back_goes_to_previous = function()
+-- Back climbs the history the way you came, never toggling between the last two
+tests.back_climbs_history = function()
   local view = require("symphony.view")
-  local first = view.show(home_page)
-  local second = view.show({ name = "mail", lines = { "inbox" }, keys = { "" }, filetype = "mail" })
-  assert_eq(vim.api.nvim_get_current_buf(), second, "on second")
+  local home = view.show(home_page)
+  view.history = {}
+  local inbox = view.show({ name = "mail", lines = { "inbox" }, keys = { "" }, filetype = "mail" })
+  local msg = view.show({ name = "mail/1", lines = { "From: x" }, keys = { "" }, filetype = "message" })
+  assert_eq(vim.api.nvim_get_current_buf(), msg, "on message")
   view.back()
-  assert_eq(vim.api.nvim_get_current_buf(), first, "back on first")
+  assert_eq(vim.api.nvim_get_current_buf(), inbox, "back on inbox")
+  view.back()
+  assert_eq(vim.api.nvim_get_current_buf(), home, "back on home")
+  -- A refresh of the same page adds nothing to the history
+  view.show(home_page)
+  assert_eq(#view.history, 0, "history empty after refresh")
 end
 
 -- An unknown subcommand reports an error through vim.notify

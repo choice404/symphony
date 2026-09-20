@@ -60,11 +60,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// Build the views
-	reg, err := host.Views(cfg)
+	// Build the views and keep their closer for the way out
+	reg, closeViews, err := host.Views(cfg, logger.Printf)
 	if err != nil {
 		return err
 	}
+	defer closeViews()
 	// Listen
 	sock, err := rpc.SocketPath()
 	if err != nil {

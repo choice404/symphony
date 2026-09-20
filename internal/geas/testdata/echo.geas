@@ -1,0 +1,34 @@
+// A contract that exercises every value kind the binding has to carry
+
+record Pair {
+    name: String
+    count: Int
+}
+
+EchoError is either Nope or Bad(detail: String)
+
+contract Echo {
+    vow tagline: String = "echo"
+    vow limit: Int = 3
+
+    pledge twice(p: Pair) -> Result<List<Pair>, EchoError> {
+        return Ok([p, p])
+    }
+
+    pledge fail(detail: String) -> Result<Bool, EchoError> {
+        return Err(Bad(detail))
+    }
+
+    pledge maybe(flag: Bool) -> Option<Int> {
+        if flag {
+            return Some(limit)
+        }
+        return None
+    }
+
+    pledge greet(name: String) -> Result<String, EchoError> {
+        return Ok(tagline + " " + name)
+    }
+
+    pledge total(xs: List<Int>) -> Result<Int, EchoError>
+}

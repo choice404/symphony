@@ -18,6 +18,14 @@ const fileRel = "symphony/config.toml"
 type Config struct {
 	// The mail section
 	Mail Mail `toml:"mail"`
+	// The geas section
+	Geas Geas `toml:"geas"`
+}
+
+// Geas is the [geas] section
+type Geas struct {
+	// The directory holding compiled contracts, ~ is expanded
+	Contracts string `toml:"contracts"`
 }
 
 // Mail is the [mail] section
@@ -72,6 +80,7 @@ func LoadFile(path string) (Config, error) {
 	}
 	// Expand the home directory in paths
 	c.Mail.Maildir = expand(c.Mail.Maildir)
+	c.Geas.Contracts = expand(c.Geas.Contracts)
 	return c, nil
 }
 
