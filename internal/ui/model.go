@@ -46,8 +46,10 @@ type Model struct {
 	screen nvim.Screen
 	// Whether the ui is attached yet
 	attached bool
-	// The error that ended the program if any
+	// The failure of a host call that ended the program, nil when nvim simply quit
 	Err error
+	// The serve error when nvim went away on its own, informational only
+	ExitErr error
 }
 
 /**
@@ -90,9 +92,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		next.screen = msg.Screen
 		return next, nil
 	case ExitMsg:
-		// Keep the error and stop
+		// nvim went away on its own, a :q, so stop without an error
 		next := m
-		next.Err = msg.Err
+		next.ExitErr = msg.Err
 		return next, tea.Quit
 	case errMsg:
 		// A failed host call ends the program with its error

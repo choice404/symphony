@@ -137,8 +137,26 @@ func (s *Session) Attach(width, height int) error {
 	if err := s.v.SetVar(channelVar, s.v.ChannelID()); err != nil {
 		return fmt.Errorf("set channel var: %w", err)
 	}
+	// Put the plugin back on the runtimepath, a plugin manager such as lazy.nvim resets it during startup
+	if s.opts.PluginDir != "" {
+		if err := s.v.ExecLua(ensurePluginLua, nil, s.opts.PluginDir); err != nil {
+			return fmt.Errorf("ensure plugin: %w", err)
+		}
+	}
 	return nil
 }
+
+// ensurePluginLua adds the plugin directory to the runtimepath when it is missing and sources its plugin file once
+const ensurePluginLua = `
+local dir = ...
+local rtp = vim.opt.runtimepath:get()
+if not vim.tbl_contains(rtp, dir) then
+  vim.opt.runtimepath:prepend(dir)
+end
+if not vim.g.loaded_symphony then
+  vim.cmd.source(dir .. "/plugin/symphony.lua")
+end
+`
 
 /**
  * Resize
@@ -206,9 +224,8 @@ func (s *Session) Handle(method string, fn interface{}) error {
  * @return error
  **/
 func (s *Session) Close() error {
-	// Close the pipes, which tells nvim to exit
-	err := s.v.Close()
-	// Kill the process in case it did not
+	// Kill the process first so the wait inside Close never hangs on a stuck nvim
 	s.cancel()
-	return err
+	// Close the pipes and reap the process
+	return s.v.Close()
 }

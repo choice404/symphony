@@ -183,3 +183,32 @@ func TestInstallPluginWritesTree(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionPluginSurvivesRtpReset(t *testing.T) {
+	if _, err := exec.LookPath("nvim"); err != nil {
+		t.Skip("nvim not on PATH")
+	}
+	plugin, _ := filepath.Abs(pluginDir)
+	// A second --cmd wipes the runtimepath the way lazy.nvim does during startup
+	sess, err := Start(context.Background(), Options{
+		PluginDir: plugin,
+		Args:      []string{"--clean", "--cmd", "lua vim.opt.runtimepath = { vim.env.VIMRUNTIME }"},
+		Logf:      t.Logf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sess.Close() })
+	if err := sess.Attach(40, 10); err != nil {
+		t.Fatal(err)
+	}
+	// The module loads and the command exists once attach put the plugin back
+	var ok bool
+	err = sess.Exec(`return pcall(require, "symphony.view") and vim.api.nvim_get_commands({}).Symphony ~= nil`, &ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Fatal("plugin not reachable after runtimepath reset")
+	}
+}

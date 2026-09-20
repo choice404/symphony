@@ -101,9 +101,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// Log the error that ended the model, a closed pipe on :q is normal and not reported
-	if m, ok := final.(ui.Model); ok && m.Err != nil {
-		logger.Printf("exit: %v", m.Err)
+	// A failed host call is reported, a closed pipe on :q is normal and only logged
+	if m, ok := final.(ui.Model); ok {
+		if m.ExitErr != nil {
+			logger.Printf("nvim exit: %v", m.ExitErr)
+		}
+		if m.Err != nil {
+			logger.Printf("exit: %v", m.Err)
+			return m.Err
+		}
 	}
 	return nil
 }
