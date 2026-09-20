@@ -23,6 +23,17 @@ go build -o target/symphony ./cmd/symphony
 
 Anything after the binary name is passed to nvim, so ./target/symphony --clean starts without your config. Quit with :q like normal.
 
+Symphony opens on a home buffer that lists every app with a summary, unless you named a file on the command line in which case it opens that file the way nvim would. In any symphony buffer <CR> opens the item under the cursor, r renders the page again, q goes back to the previous buffer, and gh jumps home. :Symphony mail, :Symphony home, and :Symphony open <view> get you anywhere by name.
+
+# Config
+
+The config lives at ~/.config/symphony/config.toml and is optional, a missing file is the empty config.
+
+[mail]
+maildir = "~/Mail/inbox"
+
+Mail reads a Maildir straight off disk, the cur and new folders, so anything that syncs one works, such as mbsync, offlineimap, etc. The inbox page lists messages newest first with N for unread, F for flagged, and R for replied, and opening one shows the headers and the plain text part, or the html part with its tags stripped when there is no plain one. Without a maildir the mail page says how to set one.
+
 # Test
 
 go test -race ./...
@@ -32,4 +43,4 @@ The Go tests spawn a real nvim with --clean and check the screen, the cursor, a 
 
 # Status
 
-Step 1 of 5, nvim embedded and drawn, plugin round trip working. Next is mail in plain go pushed into a buffer, then the daemon split, then the geas binding, then a dusk plugin body.
+Step 2 of 5, nvim embedded and drawn, every app is a page the plugin shows as a buffer, and mail reads a Maildir. Next is the daemon split, then the geas binding, then a dusk plugin body.

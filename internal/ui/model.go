@@ -40,6 +40,8 @@ type errMsg struct {
 type Model struct {
 	// The embedded nvim
 	host Host
+	// Runs once right after the ui attaches, nil for nothing
+	onAttach func() error
 	// The last snapshot
 	screen nvim.Screen
 	// Whether the ui is attached yet
@@ -52,11 +54,12 @@ type Model struct {
  * New
  * Builds a model around a host
  * @param host {Host} - the embedded nvim
+ * @param onAttach {func() error} - runs once after the ui attaches, nil for nothing
  * @return Model
  **/
-func New(host Host) Model {
+func New(host Host, onAttach func() error) Model {
 	// Return the model, nothing attached yet
-	return Model{host: host}
+	return Model{host: host, onAttach: onAttach}
 }
 
 /**
@@ -115,6 +118,10 @@ func (m Model) onSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	if !m.attached {
 		err = m.host.Attach(msg.Width, msg.Height)
 		next.attached = err == nil
+		// Run the attach hook once the ui is up
+		if err == nil && m.onAttach != nil {
+			err = m.onAttach()
+		}
 	} else {
 		err = m.host.Resize(msg.Width, msg.Height)
 	}

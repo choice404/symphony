@@ -37,10 +37,25 @@ commands.health = function()
   vim.cmd.checkhealth("symphony")
 end
 
+-- Opens a view by name, home when none was given
+commands.open = function(args)
+  require("symphony.view").open(args[1] or "home")
+end
+
+-- Opens the home view
+commands.home = function()
+  require("symphony.view").open("home")
+end
+
+-- Opens the mail view
+commands.mail = function()
+  require("symphony.view").open("mail")
+end
+
 -- Runs one subcommand from the words after :Symphony
 function M.command(fargs)
-  -- The subcommand name, status when none was given
-  local name = fargs[1] or "status"
+  -- The subcommand name, home when none was given
+  local name = fargs[1] or "home"
   -- Find it
   local fn = commands[name]
   -- Report an unknown name

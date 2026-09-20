@@ -1,4 +1,4 @@
-// The symphony TUI, an embedded nvim drawn through bubbletea
+// The symphony TUI, an embedded nvim drawn through bubbletea with every app shown as a buffer
 package main
 
 import (
@@ -7,18 +7,23 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/choice404/symphony"
+	"github.com/choice404/symphony/internal/config"
+	"github.com/choice404/symphony/internal/host"
+	"github.com/choice404/symphony/internal/mail"
 	"github.com/choice404/symphony/internal/nvim"
 	"github.com/choice404/symphony/internal/ui"
+	"github.com/choice404/symphony/internal/view"
 )
 
 /**
  * main
- * Installs the plugin, starts nvim, runs the program, and always closes nvim on the way out
+ * Runs the program and turns its error into an exit code
  * @return void
  **/
 func main() {
@@ -31,13 +36,18 @@ func main() {
 
 /**
  * run
- * The whole program so main can turn its error into an exit code
+ * Loads the config, installs the plugin, starts nvim, wires the views, runs the program, and always closes nvim on the way out
  * @return error
  **/
 func run() error {
 	// The context that kills nvim when we leave
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	// Read the config
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
 	// Put the embedded plugin where nvim can load it
 	pluginDir, err := nvim.InstallPlugin(symphony.PluginFS, symphony.PluginRoot)
 	if err != nil {
@@ -70,19 +80,76 @@ func run() error {
 	}
 	// Always close nvim, whatever way the program ends
 	defer func() { _ = sess.Close() }()
+	// Build the views and answer the plugin from them
+	reg, err := buildViews(cfg)
+	if err != nil {
+		return err
+	}
+	if err := host.Register(ctx, sess, reg); err != nil {
+		return err
+	}
+	// Open home after attach unless a file was named on the command line
+	var onAttach func() error
+	if !hasFileArg(os.Args[1:]) {
+		onAttach = func() error { return host.OpenHome(sess) }
+	}
 	// Build the program on the alternate screen
-	p := tea.NewProgram(ui.New(sess), tea.WithAltScreen())
+	p := tea.NewProgram(ui.New(sess, onAttach), tea.WithAltScreen())
 	prog.Store(p)
 	// Run it
 	final, err := p.Run()
 	if err != nil {
 		return err
 	}
-	// Surface the error that ended the model, a closed pipe on :q is normal and not reported
+	// Log the error that ended the model, a closed pipe on :q is normal and not reported
 	if m, ok := final.(ui.Model); ok && m.Err != nil {
 		logger.Printf("exit: %v", m.Err)
 	}
 	return nil
+}
+
+/**
+ * buildViews
+ * Builds every view and the home page that lists them
+ * @param cfg {config.Config} - the config
+ * @return view.Registry, error
+ **/
+func buildViews(cfg config.Config) (view.Registry, error) {
+	// The registry, assigned after home so the opener closes over it
+	var reg view.Registry
+	// The mail view
+	mailView := mail.NewView(cfg.Mail.Maildir)
+	// The home view opens entries through the registry
+	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
+	home := view.NewHome(open, view.Entry{Name: mail.ViewName, Label: "mail", Summary: mailView.Summary})
+	// Build the registry
+	var err error
+	reg, err = view.NewRegistry(home, mailView)
+	if err != nil {
+		return view.Registry{}, err
+	}
+	return reg, nil
+}
+
+/**
+ * hasFileArg
+ * Reports whether any argument names a file rather than a flag
+ * @param args {[]string} - the arguments after the binary name
+ * @return bool
+ **/
+func hasFileArg(args []string) bool {
+	// Loop over every argument
+	for i := 0; i < len(args); i++ {
+		// Skip flags and the value of a flag that takes one
+		if strings.HasPrefix(args[i], "-") {
+			if args[i] == "-u" || args[i] == "-i" || args[i] == "--cmd" || args[i] == "-c" || args[i] == "--listen" {
+				i++
+			}
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 /**
