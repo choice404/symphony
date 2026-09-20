@@ -6,7 +6,11 @@ OUT := target
 CONTRACTS := contracts/mail.geas
 MODULES := $(OUT)/geas-out/libmail.geas.so
 
-.PHONY: build geas contracts test test-geas lint run clean
+DUSK ?= dusk
+PLUGINS := plugins/mail/classify.dusk
+ARCHIVES := $(OUT)/dusk-out/libclassify.a
+
+.PHONY: build geas dusk contracts plugins test test-geas test-dusk lint run clean
 
 # Both binaries, plain
 build:
@@ -26,6 +30,19 @@ geas: contracts
 	mkdir -p $(OUT)/contracts
 	cp $(MODULES) $(OUT)/contracts/
 
+# The dusk plugin bodies archived under target/dusk-out
+plugins: $(ARCHIVES)
+
+$(OUT)/dusk-out/lib%.a: plugins/mail/%.dusk plugins/mail/glue.c
+	$(DUSK) build --lib $<
+
+# Both binaries with the geas runtime and the dusk bodies linked in
+dusk: contracts plugins
+	$(GO) build -tags "geas dusk" -o $(OUT)/symphony ./cmd/symphony
+	$(GO) build -tags "geas dusk" -o $(OUT)/symphonyd ./cmd/symphonyd
+	mkdir -p $(OUT)/contracts
+	cp $(MODULES) $(OUT)/contracts/
+
 # The plain suite plus the plugin tests
 test:
 	$(GO) test -race ./...
@@ -35,12 +52,17 @@ test:
 test-geas:
 	$(GO) test -race -tags geas ./...
 
+# The suite with the dusk body linked in, needs the archive from make plugins
+test-dusk: plugins
+	$(GO) test -race -tags "geas dusk" ./...
+
 lint:
 	gofmt -l .
 	$(GO) vet ./...
 	$(GO) vet -tags geas ./...
 	golangci-lint run ./...
 	golangci-lint run --build-tags geas ./...
+	golangci-lint run --build-tags geas,dusk ./...
 
 # The TUI from source, needs a real terminal
 run:

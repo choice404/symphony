@@ -47,6 +47,9 @@ contract Mailbox {
         pledge open(path: String) -> Result<Opened, MailError>
     }
 
+    // Bound to the dusk plugin when the daemon was built with it, labels a message from its sender and subject
+    pledge classify(sender: String, subject: String) -> Result<String, MailError>
+
     requirements {
         fulfill: configured && Inbox && Reading
         partial: configured && Inbox

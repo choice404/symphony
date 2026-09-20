@@ -47,7 +47,20 @@ Service plugins are geas contracts (github.com/choice404/geas). The mail service
 ```
 make geas
 ./target/symphony
-``` When no module is found the daemon logs it and mail runs the plain way.
+```
+
+When no module is found the daemon logs it and mail runs the plain way.
+
+# Plugin bodies in dusk
+
+A pledge body does not have to be geas or Go. plugins/mail/classify.dusk is the classify pledge of the mail contract written in dusk (github.com/choice404/dusk), it labels every inbox line personal, notice, list, money, or urgent from the sender and subject. dusk build --lib turns it into a static archive, the daemon links that archive in with the dusk build tag and binds the exported function straight to the pledge, no trampoline, and glue.c beside it is the only code that touches the geas value layout, so the dusk side reads two strings and returns one. dusk does not emit a position independent shared object yet, which is why the body is linked in at build time instead of loaded from a file.
+
+```
+make dusk
+./target/symphony
+```
+
+Without the dusk tag the daemon logs that classify is not linked in and inbox lines carry no label.
 
 # Config
 
@@ -82,4 +95,4 @@ The Go tests spawn a real nvim with --clean and check the screen, the cursor, a 
 
 # Status
 
-Step 4 of 5, nvim embedded and drawn, every app is a page the plugin shows as a buffer, the daemon serves them over a socket, and mail runs as a geas contract when built with make geas. Next is a dusk plugin body behind abi c.
+Step 5 of 5, nvim embedded and drawn, every app is a page the plugin shows as a buffer, the daemon serves them over a socket, mail runs as a geas contract when built with make geas, and its classify pledge is a dusk body when built with make dusk. Next is more apps on the same shape, calendar, git, and discord, and multigrid so the chrome can sit beside the nvim windows.

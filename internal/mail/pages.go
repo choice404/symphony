@@ -99,8 +99,13 @@ func listLine(m Message) string {
 	if !m.Date.IsZero() {
 		date = m.Date.Local().Format("2006-01-02")
 	}
+	// The label column, only when a classifier ran
+	label := ""
+	if m.Label != "" {
+		label = fmt.Sprintf("%-8s  ", clip(m.Label, 8))
+	}
 	// Return the line
-	return fmt.Sprintf("%s %s  %-*s  %s", flag, date, listWidthFrom, clip(m.From, listWidthFrom), m.Subject)
+	return fmt.Sprintf("%s %s  %s%-*s  %s", flag, date, label, listWidthFrom, clip(m.From, listWidthFrom), m.Subject)
 }
 
 /**

@@ -1,0 +1,44 @@
+@paradigm procedural
+
+// The classify pledge of the Mailbox contract, written in dusk. The daemon
+// links this archive in and binds symphony_Mailbox_classify to the pledge, so
+// every inbox line gets a label from here. The glue in glue.c reads the two
+// string arguments out of the frame and writes the Result back, and this file
+// only decides what the label is.
+
+@csource "glue.c"
+@import std.string
+
+foreign "C" {
+    func symphony_arg_string(ctx: *void, args: *void, nargs: uint64, i: uint64) -> *raw char
+    func symphony_out_ok_string(ctx: *void, out: *void, s: *raw char) -> int32
+}
+
+// Picks a label from the lowered sender and subject, the last match wins so
+// urgent beats everything
+func label(sender: string, subject: string) -> string {
+    mut out: string = "personal"
+    if str_contains(sender, "noreply") || str_contains(sender, "no-reply") || str_contains(sender, "notification") || str_contains(sender, "mailer-daemon") {
+        out = "notice"
+    }
+    if str_contains(subject, "unsubscribe") || str_contains(subject, "newsletter") || str_contains(subject, "digest") || str_contains(sender, "newsletter") {
+        out = "list"
+    }
+    if str_contains(subject, "invoice") || str_contains(subject, "receipt") || str_contains(subject, "payment") || str_contains(subject, "order") {
+        out = "money"
+    }
+    if str_contains(subject, "urgent") || str_contains(subject, "asap") || str_contains(subject, "action required") {
+        out = "urgent"
+    }
+    return out
+}
+
+// The pledge body in the frame shape every geas pledge takes
+export "C" func symphony_Mailbox_classify(ctx: *void, args: *void, nargs: uint64, out: *void) -> int32 {
+    sender: string = to_lower(cstr(symphony_arg_string(ctx, args, nargs, 0u64)))
+    subject: string = to_lower(cstr(symphony_arg_string(ctx, args, nargs, 1u64)))
+    result: string = label(sender, subject)
+    free(sender)
+    free(subject)
+    return symphony_out_ok_string(ctx, out, cbuf(result))
+}

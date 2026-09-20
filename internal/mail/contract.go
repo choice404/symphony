@@ -29,6 +29,8 @@ type Contract struct {
 	rt *geas.Runtime
 	// The Maildir root handed over as the maildir vow
 	dir string
+	// Whether classify is bound, so every listed message gets a label
+	labels bool
 	// Guards the instance and the last list
 	mu sync.Mutex
 	// The signed instance, nil before the first render
@@ -39,7 +41,7 @@ type Contract struct {
 
 /**
  * Bind
- * Binds the two host pledges of the module, list and open, once per process
+ * Binds the host pledges of the module, list, open, and a classify that labels nothing until a dusk body replaces it
  * @param rt {*geas.Runtime} - the runtime with the mail module loaded
  * @return error
  **/
@@ -58,13 +60,20 @@ func Bind(rt *geas.Runtime) error {
 		return err
 	}
 	// open reads one file
-	return rt.Bind(ContractName+".open", func(_ *geas.Instance, args []geas.Value) (geas.Value, error) {
+	err = rt.Bind(ContractName+".open", func(_ *geas.Instance, args []geas.Value) (geas.Value, error) {
 		path, _ := args[0].(string)
 		o, err := Open(path)
 		if err != nil {
 			return geas.Result{Value: geas.Sum{Tag: errUnreadable, Fields: []geas.Value{err.Error()}}}, nil
 		}
 		return geas.Result{Ok: true, Value: encodeOpened(o)}, nil
+	})
+	if err != nil {
+		return err
+	}
+	// classify labels nothing until BindDusk replaces it, so the contract can always sign
+	return rt.Bind(ContractName+".classify", func(_ *geas.Instance, _ []geas.Value) (geas.Value, error) {
+		return geas.Result{Ok: true, Value: ""}, nil
 	})
 }
 
@@ -73,10 +82,11 @@ func Bind(rt *geas.Runtime) error {
  * Builds the contract backed mail view
  * @param rt {*geas.Runtime} - the runtime with the module loaded and the pledges bound
  * @param dir {string} - the Maildir root, empty when not configured
+ * @param labels {bool} - whether classify is bound and every message should carry a label
  * @return *Contract
  **/
-func NewContract(rt *geas.Runtime, dir string) *Contract {
-	return &Contract{rt: rt, dir: dir}
+func NewContract(rt *geas.Runtime, dir string, labels bool) *Contract {
+	return &Contract{rt: rt, dir: dir, labels: labels}
 }
 
 /**
@@ -222,9 +232,35 @@ func (c *Contract) list() ([]Message, error) {
 	if !r.Ok {
 		return nil, fmt.Errorf("%s: %s", strings.ToLower(c.inst.State().String()), describeError(r.Value))
 	}
-	// Keep the list for open
-	c.last = decodeMessages(r.Value)
+	// Keep the list for open, labeled when the classifier is bound
+	msgs := decodeMessages(r.Value)
+	if c.labels {
+		msgs = c.classify(msgs)
+	}
+	c.last = msgs
 	return c.last, nil
+}
+
+/**
+ * classify
+ * Fulfills classify for every message and returns a new list carrying the labels
+ * @param msgs {[]Message} - the messages
+ * @return []Message
+ **/
+func (c *Contract) classify(msgs []Message) []Message {
+	// The labeled copies
+	out := make([]Message, 0, len(msgs))
+	for _, m := range msgs {
+		// Ask the plugin
+		v, err := c.inst.Fulfill("classify", m.From, m.Subject)
+		if err == nil {
+			if r, ok := v.(geas.Result); ok && r.Ok {
+				m.Label = str(r.Value)
+			}
+		}
+		out = append(out, m)
+	}
+	return out
 }
 
 /**

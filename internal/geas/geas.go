@@ -169,6 +169,28 @@ func (r *Runtime) Bind(pledge string, fn PledgeFunc) error {
 }
 
 /**
+ * BindC
+ * Binds a C function pointer in the pledge frame shape straight to a pledge, no trampoline, for a body linked into the process such as a dusk archive
+ * @param pledge {string} - the pledge name as Contract.pledge
+ * @param fn {unsafe.Pointer} - the function
+ * @return error
+ **/
+func (r *Runtime) BindC(pledge string, fn unsafe.Pointer) error {
+	// Refuse a nil function
+	if fn == nil {
+		return fmt.Errorf("bind %s: nil function", pledge)
+	}
+	// The C name
+	cname := C.CString(pledge)
+	defer C.free(unsafe.Pointer(cname))
+	// Bind it
+	if err := check(C.geas_pledge_bind(r.rt, cname, C.GeasPledgeFn(fn))); err != nil {
+		return fmt.Errorf("bind %s: %w", pledge, err)
+	}
+	return nil
+}
+
+/**
  * Freeze
  * Refuses every later load and bind
  * @return error

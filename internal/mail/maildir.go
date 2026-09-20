@@ -30,6 +30,8 @@ type Message struct {
 	Flagged bool
 	// Whether the file carries the replied flag
 	Replied bool
+	// The label a classifier gave it, empty when none ran
+	Label string
 }
 
 // decoder decodes RFC 2047 encoded words in headers

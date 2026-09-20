@@ -41,10 +41,15 @@ func Views(cfg config.Config, logf func(string, ...interface{})) (view.Registry,
 		rt.Shutdown()
 		return view.Registry{}, nil, err
 	}
-	// Bind the host pledges and freeze
+	// Bind the host pledges, then the dusk body when this build carries it
 	if err := mail.Bind(rt); err != nil {
 		rt.Shutdown()
 		return view.Registry{}, nil, err
+	}
+	labels := true
+	if err := mail.BindDusk(rt); err != nil {
+		logf("geas: %v, inbox lines carry no label", err)
+		labels = false
 	}
 	if err := rt.Freeze(); err != nil {
 		rt.Shutdown()
@@ -52,7 +57,7 @@ func Views(cfg config.Config, logf func(string, ...interface{})) (view.Registry,
 	}
 	logf("geas: mail runs through %s", module)
 	// Assemble around the contract view
-	reg, err := assemble(mail.NewContract(rt, cfg.Mail.Maildir))
+	reg, err := assemble(mail.NewContract(rt, cfg.Mail.Maildir, labels))
 	if err != nil {
 		rt.Shutdown()
 		return view.Registry{}, nil, err
