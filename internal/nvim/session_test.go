@@ -115,18 +115,6 @@ func TestSessionResize(t *testing.T) {
 	}
 }
 
-func TestSessionPluginPingRoundTrip(t *testing.T) {
-	sess, _ := startTest(t)
-	// The plugin asks the host and the host answers
-	var reply string
-	if err := sess.Exec(`return require("symphony.rpc").request("symphony.ping")`, &reply); err != nil {
-		t.Fatal(err)
-	}
-	if reply != "pong" {
-		t.Fatalf("reply = %q", reply)
-	}
-}
-
 func TestSessionPluginCommandRegistered(t *testing.T) {
 	sess, _ := startTest(t)
 	// The :Symphony command exists once the plugin loaded from the runtimepath

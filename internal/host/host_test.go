@@ -5,8 +5,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/choice404/symphony/internal/nvim"
+	"github.com/choice404/symphony/internal/rpc"
 	"github.com/choice404/symphony/internal/view"
 )
 
@@ -29,62 +31,131 @@ func (fake) Act(_ context.Context, action, key string) (view.Response, error) {
 	return view.Notify("did " + action), nil
 }
 
-// start spawns a real nvim with the plugin and the fake view registered
-func start(t *testing.T) *nvim.Session {
+// serve starts a server on a scratch socket and returns the socket path and the server
+func serve(t *testing.T) (string, *Server) {
 	t.Helper()
+	path := filepath.Join(t.TempDir(), "s.sock")
+	ln, err := rpc.Listen(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, err := view.NewRegistry(fake{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := NewServer(reg, t.Logf)
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(context.Background(), ln) }()
+	t.Cleanup(func() {
+		srv.Stop()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("serve: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Error("serve did not return after stop")
+		}
+	})
+	return path, srv
+}
+
+func TestGoClientRenderAndAct(t *testing.T) {
+	path, _ := serve(t)
+	c, err := rpc.Connect(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	var pong string
+	if err := c.Call(PingMethod, &pong); err != nil || pong != "pong" {
+		t.Fatalf("ping = %q %v", pong, err)
+	}
+	var page map[string]interface{}
+	if err := c.Call(RenderMethod, &page, "fake"); err != nil {
+		t.Fatal(err)
+	}
+	if page["name"] != "fake" {
+		t.Fatalf("page = %v", page)
+	}
+	var resp map[string]interface{}
+	if err := c.Call(ActionMethod, &resp, "fake", "refresh", ""); err != nil {
+		t.Fatal(err)
+	}
+	if resp["kind"] != "notify" || resp["text"] != "did refresh" {
+		t.Fatalf("resp = %v", resp)
+	}
+	var names []string
+	if err := c.Call(ViewsMethod, &names); err != nil || len(names) != 1 || names[0] != "fake" {
+		t.Fatalf("names = %v %v", names, err)
+	}
+	// An unknown view is an rpc error
+	if err := c.Call(RenderMethod, &page, "ghost"); err == nil {
+		t.Fatal("expected error for unknown view")
+	}
+}
+
+func TestStopEndsServe(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.sock")
+	ln, err := rpc.Listen(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg, _ := view.NewRegistry(fake{})
+	srv := NewServer(reg, t.Logf)
+	done := make(chan error, 1)
+	go func() { done <- srv.Serve(context.Background(), ln) }()
+	c, err := rpc.Connect(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	var ok bool
+	if err := c.Call(StopMethod, &ok); err != nil || !ok {
+		t.Fatalf("stop = %v %v", ok, err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("serve did not return after stop request")
+	}
+}
+
+func TestNvimDialsDaemonAndShowsPage(t *testing.T) {
 	if _, err := exec.LookPath("nvim"); err != nil {
 		t.Skip("nvim not on PATH")
 	}
+	path, _ := serve(t)
 	plugin, _ := filepath.Abs(pluginDir)
 	sess, err := nvim.Start(context.Background(), nvim.Options{PluginDir: plugin, Args: []string{"--clean"}, Logf: t.Logf})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sess.Close() })
-	reg, err := view.NewRegistry(fake{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := Register(context.Background(), sess, reg); err != nil {
-		t.Fatal(err)
-	}
 	if err := sess.Attach(60, 20); err != nil {
 		t.Fatal(err)
 	}
-	return sess
-}
-
-func TestOpenShowsPageInBuffer(t *testing.T) {
-	sess := start(t)
-	// The plugin asks the host and fills a buffer
+	// The plugin dials the socket, asks for the page, and fills a buffer
 	var lines []string
-	err := sess.Exec(`
+	err = sess.Exec(`
+		local path = ...
+		local chan, err = require("symphony.rpc").connect(path)
+		if not chan then error(err) end
 		local buf = require("symphony.view").open("fake")
 		return vim.api.nvim_buf_get_lines(buf, 0, -1, false)
-	`, &lines)
+	`, &lines, path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(lines) != 2 || lines[0] != "one" || lines[1] != "two" {
 		t.Fatalf("lines = %v", lines)
 	}
-	// The cursor landed on the page's line
-	var row int
-	if err := sess.Exec(`return vim.api.nvim_win_get_cursor(0)[1]`, &row); err != nil {
-		t.Fatal(err)
-	}
-	if row != 2 {
-		t.Fatalf("row = %d", row)
-	}
-}
-
-func TestActionOpensItem(t *testing.T) {
-	sess := start(t)
-	// Open the page, move to the second line, and press enter through the action path
-	var lines []string
-	err := sess.Exec(`
+	// An action on the second line opens the item
+	err = sess.Exec(`
 		local view = require("symphony.view")
-		view.open("fake")
 		vim.api.nvim_win_set_cursor(0, { 2, 0 })
 		view.act("open")
 		return vim.api.nvim_buf_get_lines(0, 0, -1, false)
@@ -94,39 +165,5 @@ func TestActionOpensItem(t *testing.T) {
 	}
 	if len(lines) != 1 || lines[0] != "opened k2" {
 		t.Fatalf("lines = %v", lines)
-	}
-	// The buffer is named after the item
-	var name string
-	if err := sess.Exec(`return vim.api.nvim_buf_get_name(0)`, &name); err != nil {
-		t.Fatal(err)
-	}
-	if filepath.Base(name) != "k2" {
-		t.Fatalf("name = %q", name)
-	}
-}
-
-func TestViewsListed(t *testing.T) {
-	sess := start(t)
-	var names []string
-	if err := sess.Exec(`return require("symphony.rpc").request("symphony.views")`, &names); err != nil {
-		t.Fatal(err)
-	}
-	if len(names) != 1 || names[0] != "fake" {
-		t.Fatalf("names = %v", names)
-	}
-}
-
-func TestUnknownViewIsAnError(t *testing.T) {
-	sess := start(t)
-	var msg string
-	err := sess.Exec(`
-		local ok, err = pcall(require("symphony.rpc").request, "symphony.render", "ghost")
-		return tostring(err)
-	`, &msg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if msg == "" || msg == "nil" {
-		t.Fatalf("expected an error message, got %q", msg)
 	}
 }

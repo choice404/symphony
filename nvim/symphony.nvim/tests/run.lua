@@ -5,6 +5,8 @@
 local here = debug.getinfo(1, "S").source:sub(2):match("(.*/)") or "./"
 -- The plugin root one level up
 local root = vim.fn.fnamemodify(here .. "..", ":p")
+-- Point the socket at a path nothing listens on so a real daemon never answers a test
+vim.env.SYMPHONY_SOCKET = vim.fn.tempname() .. ".sock"
 -- Put the plugin on the runtimepath
 vim.opt.runtimepath:prepend(root)
 -- Source the plugin file the way a real start would
@@ -57,10 +59,34 @@ tests.notify_dropped_without_host = function()
   assert_eq(require("symphony.rpc").notify("symphony.noop"), false, "notify")
 end
 
+-- The socket path follows the override, then the runtime dir, then the cache dir
+tests.socket_path_order = function()
+  local rpc = require("symphony.rpc")
+  local saved = { vim.env.SYMPHONY_SOCKET, vim.env.XDG_RUNTIME_DIR, vim.env.XDG_CACHE_HOME }
+  vim.env.SYMPHONY_SOCKET = "/tmp/o.sock"
+  assert_eq(rpc.socket_path(), "/tmp/o.sock", "override")
+  vim.env.SYMPHONY_SOCKET = ""
+  vim.env.XDG_RUNTIME_DIR = "/run/user/9"
+  assert_eq(rpc.socket_path(), "/run/user/9/symphony/symphonyd.sock", "runtime")
+  vim.env.XDG_RUNTIME_DIR = ""
+  vim.env.XDG_CACHE_HOME = "/tmp/cache"
+  assert_eq(rpc.socket_path(), "/tmp/cache/symphony/symphonyd.sock", "cache")
+  vim.env.SYMPHONY_SOCKET, vim.env.XDG_RUNTIME_DIR, vim.env.XDG_CACHE_HOME = saved[1], saved[2], saved[3]
+end
+
+-- Connecting to a socket nobody listens on returns nil and a message naming the path
+tests.connect_missing_socket = function()
+  local rpc = require("symphony.rpc")
+  local chan, err = rpc.connect("/nonexistent/dir/none.sock")
+  assert_eq(chan, nil, "channel")
+  assert_true(err:find("/nonexistent/dir/none.sock", 1, true) ~= nil, "names the path")
+  assert_eq(vim.g.symphony_channel, nil, "nothing remembered")
+end
+
 -- The subcommand list is sorted and holds the known names
 tests.subcommands_sorted = function()
   local names = require("symphony").subcommands()
-  assert_eq(table.concat(names, ","), "health,home,mail,open,ping,status", "names")
+  assert_eq(table.concat(names, ","), "connect,health,home,mail,open,ping,status", "names")
 end
 
 -- A fake host that answers render and action from tables

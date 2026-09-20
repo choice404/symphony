@@ -20,15 +20,27 @@ commands.ping = function()
   vim.notify("symphony: " .. tostring(reply))
 end
 
--- Prints whether a host is attached and on which channel
+-- Prints whether a daemon is attached and on which channel
 commands.status = function()
-  -- Find the host
+  -- Find the daemon
   local chan = rpc.channel()
   -- Report either way
   if chan then
     vim.notify("symphony: attached on channel " .. chan)
   else
     vim.notify("symphony: no host attached")
+  end
+end
+
+-- Dials the daemon, at a path when one was given
+commands.connect = function(args)
+  -- Dial
+  local chan, err = rpc.connect(args[1])
+  -- Report either way
+  if chan then
+    vim.notify("symphony: attached on channel " .. chan)
+  else
+    vim.notify(err, vim.log.levels.ERROR)
   end
 end
 

@@ -1,7 +1,7 @@
 -- The :checkhealth symphony report
 local M = {}
 
--- The transport to the host
+-- The transport to the daemon
 local rpc = require("symphony.rpc")
 
 -- Runs every check
@@ -13,22 +13,24 @@ function M.check()
   -- Report the nvim version
   local v = vim.version()
   health.info(string.format("nvim %d.%d.%d", v.major, v.minor, v.patch))
-  -- Find the host
+  -- Report the socket
+  health.info("socket " .. rpc.socket_path())
+  -- Find the daemon
   local chan = rpc.channel()
-  -- Report no host as a warning, the plugin still loads without one
+  -- Report no daemon as a warning, the plugin still loads without one
   if not chan then
-    health.warn("no host attached", { "run this nvim inside symphony or start symphonyd" })
+    health.warn("no daemon reachable", { "start symphonyd or run this nvim inside symphony" })
     return
   end
   -- Report the channel
-  health.ok("host attached on channel " .. chan)
-  -- Ping the host
+  health.ok("daemon attached on channel " .. chan)
+  -- Ping the daemon
   local ok, reply = pcall(rpc.request, "symphony.ping")
   -- Report the round trip
   if ok and reply == "pong" then
-    health.ok("host answered ping")
+    health.ok("daemon answered ping")
   else
-    health.error("host did not answer ping: " .. tostring(reply))
+    health.error("daemon did not answer ping: " .. tostring(reply))
   end
 end
 

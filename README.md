@@ -19,11 +19,18 @@ The Go program in cmd/symphony installs the lua plugin from nvim/symphony.nvim i
 # Build and run
 
 go build -o target/symphony ./cmd/symphony
+go build -o target/symphonyd ./cmd/symphonyd
 ./target/symphony
 
 Anything after the binary name is passed to nvim, so ./target/symphony --clean starts without your config. Quit with :q like normal.
 
 Symphony opens on a home buffer that lists every app with a summary, unless you named a file on the command line in which case it opens that file the way nvim would. In any symphony buffer <CR> opens the item under the cursor, r renders the page again, q goes back to the previous buffer, and gh jumps home. :Symphony mail, :Symphony home, and :Symphony open <view> get you anywhere by name.
+
+# The daemon
+
+symphonyd holds the views and answers over a unix socket at $XDG_RUNTIME_DIR/symphony/symphonyd.sock, or under ~/.cache/symphony when there is no runtime dir, and SYMPHONY_SOCKET overrides both. The TUI dials it on start and spawns one in its own session when nothing answers, so the daemon keeps running after you quit and the next start attaches to the same one. symphonyd status pings it and symphonyd stop asks it to exit. The socket and its directory are mode 600 and 700 so only you can connect.
+
+Because the socket speaks msgpack rpc, a normal nvim can use it too. Put nvim/symphony.nvim on your runtimepath like any other plugin, start symphonyd, and :Symphony mail dials the socket and shows the inbox in that nvim, no TUI needed. :Symphony connect takes a socket path when it is not the default, :Symphony status says whether you are attached, and :checkhealth symphony shows the socket and pings the daemon.
 
 # Config
 

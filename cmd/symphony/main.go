@@ -1,4 +1,4 @@
-// The symphony TUI, an embedded nvim drawn through bubbletea with every app shown as a buffer
+// The symphony TUI, an embedded nvim drawn through bubbletea and connected to the daemon
 package main
 
 import (
@@ -13,13 +13,19 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/choice404/symphony"
-	"github.com/choice404/symphony/internal/config"
-	"github.com/choice404/symphony/internal/host"
-	"github.com/choice404/symphony/internal/mail"
+	"github.com/choice404/symphony/internal/launch"
 	"github.com/choice404/symphony/internal/nvim"
+	"github.com/choice404/symphony/internal/rpc"
 	"github.com/choice404/symphony/internal/ui"
-	"github.com/choice404/symphony/internal/view"
 )
+
+// connectLua dials the daemon from inside nvim and opens home
+const connectLua = `
+local path = ...
+local chan, err = require("symphony.rpc").connect(path)
+if not chan then error(err, 0) end
+require("symphony.view").open("home")
+`
 
 /**
  * main
@@ -36,29 +42,34 @@ func main() {
 
 /**
  * run
- * Loads the config, installs the plugin, starts nvim, wires the views, runs the program, and always closes nvim on the way out
+ * Makes sure the daemon is up, installs the plugin, starts nvim, and runs the program, always closing nvim on the way out
  * @return error
  **/
 func run() error {
 	// The context that kills nvim when we leave
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	// Read the config
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
 	// Put the embedded plugin where nvim can load it
 	pluginDir, err := nvim.InstallPlugin(symphony.PluginFS, symphony.PluginRoot)
 	if err != nil {
 		return err
 	}
-	// Open the log file next to the plugin
-	logger, closeLog, err := openLog(pluginDir)
+	// The cache directory the plugin sits under, logs go beside it
+	cacheDir := filepath.Dir(filepath.Dir(pluginDir))
+	// Open the log file
+	logger, closeLog, err := openLog(filepath.Join(cacheDir, "symphony.log"))
 	if err != nil {
 		return err
 	}
 	defer closeLog()
+	// Make sure a daemon answers on the socket
+	sock, err := rpc.SocketPath()
+	if err != nil {
+		return err
+	}
+	if err := launch.EnsureDaemon(sock, filepath.Join(cacheDir, "symphonyd.log")); err != nil {
+		return err
+	}
 	// The program, set once it exists so the redraw goroutine can reach it
 	var prog atomic.Pointer[tea.Program]
 	// Hands a message to the program when it exists
@@ -80,18 +91,10 @@ func run() error {
 	}
 	// Always close nvim, whatever way the program ends
 	defer func() { _ = sess.Close() }()
-	// Build the views and answer the plugin from them
-	reg, err := buildViews(cfg)
-	if err != nil {
-		return err
-	}
-	if err := host.Register(ctx, sess, reg); err != nil {
-		return err
-	}
-	// Open home after attach unless a file was named on the command line
-	var onAttach func() error
-	if !hasFileArg(os.Args[1:]) {
-		onAttach = func() error { return host.OpenHome(sess) }
+	// After attach the plugin dials the daemon and opens home, unless a file was named on the command line
+	onAttach := func() error { return sess.Exec(connectLua, nil, sock) }
+	if hasFileArg(os.Args[1:]) {
+		onAttach = func() error { return sess.Exec(`require("symphony.rpc").connect(...)`, nil, sock) }
 	}
 	// Build the program on the alternate screen
 	p := tea.NewProgram(ui.New(sess, onAttach), tea.WithAltScreen())
@@ -112,29 +115,6 @@ func run() error {
 		}
 	}
 	return nil
-}
-
-/**
- * buildViews
- * Builds every view and the home page that lists them
- * @param cfg {config.Config} - the config
- * @return view.Registry, error
- **/
-func buildViews(cfg config.Config) (view.Registry, error) {
-	// The registry, assigned after home so the opener closes over it
-	var reg view.Registry
-	// The mail view
-	mailView := mail.NewView(cfg.Mail.Maildir)
-	// The home view opens entries through the registry
-	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
-	home := view.NewHome(open, view.Entry{Name: mail.ViewName, Label: "mail", Summary: mailView.Summary})
-	// Build the registry
-	var err error
-	reg, err = view.NewRegistry(home, mailView)
-	if err != nil {
-		return view.Registry{}, err
-	}
-	return reg, nil
 }
 
 /**
@@ -160,13 +140,11 @@ func hasFileArg(args []string) bool {
 
 /**
  * openLog
- * Opens the log file under the cache directory
- * @param pluginDir {string} - the installed plugin path, the log sits two levels up from it
+ * Opens a log file for append
+ * @param path {string} - the file
  * @return *log.Logger, func(), error
  **/
-func openLog(pluginDir string) (*log.Logger, func(), error) {
-	// The log path, cache/symphony/symphony.log
-	path := filepath.Join(filepath.Dir(filepath.Dir(pluginDir)), "symphony.log")
+func openLog(path string) (*log.Logger, func(), error) {
 	// Open for append
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {

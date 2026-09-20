@@ -7,12 +7,6 @@ import (
 	client "github.com/neovim/go-client/nvim"
 )
 
-// pingMethod is the rpcrequest name the plugin uses to prove the round trip
-const pingMethod = "symphony.ping"
-
-// channelVar is the global the plugin reads to find the host channel
-const channelVar = "symphony_channel"
-
 // Options is everything Start needs to spawn and wire an nvim
 type Options struct {
 	// The plugin directory prepended to the runtimepath, empty to skip
@@ -41,7 +35,7 @@ type Session struct {
 
 /**
  * Start
- * Spawns nvim --embed, registers the redraw handler and the ping handler, and starts serving rpc
+ * Spawns nvim --embed, registers the redraw handler, and starts serving rpc
  * @param ctx {context.Context} - cancelling it kills nvim
  * @param opts {Options} - the session options
  * @return *Session, error
@@ -77,11 +71,6 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	if err := v.RegisterHandler("redraw", s.onRedraw); err != nil {
 		cancel()
 		return nil, fmt.Errorf("register redraw: %w", err)
-	}
-	// Register the ping the plugin uses to prove the round trip
-	if err := v.RegisterHandler(pingMethod, func() (string, error) { return "pong", nil }); err != nil {
-		cancel()
-		return nil, fmt.Errorf("register ping: %w", err)
 	}
 	// Serve rpc on its own goroutine and report when it ends
 	go func() {
@@ -121,7 +110,7 @@ func (s *Session) onRedraw(updates ...[]interface{}) {
 
 /**
  * Attach
- * Attaches as a linegrid ui at a size and tells the plugin which channel the host is
+ * Attaches as a linegrid ui at a size and makes sure the plugin is loaded
  * @param width {int} - the width in columns
  * @param height {int} - the height in rows
  * @return error
@@ -132,10 +121,6 @@ func (s *Session) Attach(width, height int) error {
 	// Attach
 	if err := s.v.AttachUI(width, height, opts); err != nil {
 		return fmt.Errorf("attach ui: %w", err)
-	}
-	// Tell the plugin where the host is
-	if err := s.v.SetVar(channelVar, s.v.ChannelID()); err != nil {
-		return fmt.Errorf("set channel var: %w", err)
 	}
 	// Put the plugin back on the runtimepath, a plugin manager such as lazy.nvim resets it during startup
 	if s.opts.PluginDir != "" {
@@ -196,14 +181,15 @@ func (s *Session) Paste(text string) error {
 
 /**
  * Exec
- * Runs a lua chunk and decodes its result
- * @param code {string} - the lua chunk
- * @param result {interface{}} - where the return value lands
+ * Runs a lua chunk with arguments and decodes its result
+ * @param code {string} - the lua chunk, the arguments arrive as ...
+ * @param result {interface{}} - where the return value lands, nil to drop it
+ * @param args {...interface{}} - the arguments
  * @return error
  **/
-func (s *Session) Exec(code string, result interface{}) error {
+func (s *Session) Exec(code string, result interface{}, args ...interface{}) error {
 	// Forward to nvim_exec_lua
-	return s.v.ExecLua(code, result)
+	return s.v.ExecLua(code, result, args...)
 }
 
 /**
