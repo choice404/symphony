@@ -297,10 +297,20 @@ function M.apply(resp)
     require("symphony.project").enter(resp.path, resp.text)
     return
   end
-  -- A file is opened in the editor, and the host's text says what a write of it should do, reload the daemon, source the file, apply the theme, or note a restart
+  -- A file is opened in the editor, it remembers the page it came from so :q returns there, and the host's text says what a write of it should do, reload the daemon, source the file, apply the theme, or note a restart
   if resp.kind == "edit" then
+    local from = vim.b[0].symphony_page
     vim.cmd.edit(vim.fn.fnameescape(resp.path))
     local buf = vim.api.nvim_get_current_buf()
+    if from then
+      vim.b[buf].symphony_return = from
+      vim.keymap.set("n", "ZZ", function()
+        require("symphony.project").write_and_leave(false)
+      end, { buffer = buf, nowait = true, silent = true })
+      vim.keymap.set("n", "ZQ", function()
+        require("symphony.project").leave(true)
+      end, { buffer = buf, nowait = true, silent = true })
+    end
     if resp.text == "reload" then
       M.reload_on_write(buf)
     elseif resp.text == "source" or resp.text == "theme" or resp.text == "restart" then

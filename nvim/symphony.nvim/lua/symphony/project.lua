@@ -103,8 +103,12 @@ end
 
 -- Leaves one level, a file goes back to the tree and the tree goes back to the projects page, bang forces past unsaved changes, no project means an ordinary quit
 function M.leave(bang)
-  -- Outside a project this is an ordinary quit
+  -- Outside a project, a file opened from a page goes back to that page, anything else is an ordinary quit
   if not M.active then
+    if vim.b[0].symphony_return then
+      M.return_to_page(bang)
+      return
+    end
     vim.cmd.quit({ bang = bang })
     return
   end
@@ -144,6 +148,29 @@ function M.leave(bang)
     return
   end
   require("symphony.view").open(tree_page(M.active.path))
+  if vim.bo[buf].buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+end
+
+-- Leaves a file that a page opened, such as the config, back to that page with the file's buffer dropped, bang forces past unsaved changes
+function M.return_to_page(bang)
+  -- A floating window or a split just closes
+  if vim.api.nvim_win_get_config(0).relative ~= "" then
+    pcall(vim.api.nvim_win_close, 0, bang)
+    return
+  end
+  if #real_windows() > 1 then
+    vim.cmd.close({ bang = bang })
+    return
+  end
+  local buf = vim.api.nvim_get_current_buf()
+  if vim.bo[buf].modified and not bang then
+    vim.notify("E37: No write since last change (add ! to override)", vim.log.levels.ERROR)
+    return
+  end
+  local page = vim.b[buf].symphony_return
+  require("symphony.view").open(page)
   if vim.bo[buf].buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end

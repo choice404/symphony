@@ -401,6 +401,27 @@ tests.project_leave_ignores_floating = function()
 end
 
 -- Unsaved changes stop a plain leave, a bang forces it
+tests.edit_quit_returns_to_page = function()
+  local view = require("symphony.view")
+  local project = require("symphony.project")
+  -- A page opens a file, :q goes back to the page and drops the file
+  view.show({ name = "config", lines = { "config" }, keys = { "" }, filetype = "config" })
+  local path = vim.fn.tempname()
+  vim.fn.writefile({ "a" }, path)
+  view.apply({ kind = "edit", path = path, text = "source" })
+  local file = vim.api.nvim_get_current_buf()
+  assert_eq(vim.b[file].symphony_return, "config", "remembers the page")
+  -- Dirty refuses without bang
+  vim.api.nvim_buf_set_lines(file, -1, -1, false, { "b" })
+  project.leave(false)
+  assert_eq(vim.api.nvim_get_current_buf(), file, "dirty stays")
+  -- Bang leaves, the page is back and the file buffer is gone
+  project.leave(true)
+  assert_eq(vim.b[0].symphony_view, "config", "back on the page")
+  assert_true(not vim.api.nvim_buf_is_valid(file), "file buffer dropped")
+  vim.fn.delete(path)
+end
+
 tests.project_leave_refuses_dirty = function()
   local project = require("symphony.project")
   local dir = vim.fn.tempname()
