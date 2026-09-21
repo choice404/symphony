@@ -38,8 +38,26 @@ function M.enter(path, name)
   vim.cmd.cd(vim.fn.fnameescape(path))
   vim.cmd.enew()
   vim.bo.bufhidden = "wipe"
-  vim.notify("symphony: project " .. M.active.name)
+  -- ZZ and ZQ leave the project too, whatever the command line does
+  vim.keymap.set("n", "ZZ", function()
+    M.write_and_leave(false)
+  end, { desc = "symphony: write and leave the project" })
+  vim.keymap.set("n", "ZQ", function()
+    M.leave(true)
+  end, { desc = "symphony: leave the project without writing" })
+  vim.notify("symphony: project " .. M.active.name .. ", :q or ZZ comes back")
   pick()
+end
+
+-- The windows of the current tab that are not floating, the only ones :q cares about
+local function real_windows()
+  local out = {}
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_get_config(win).relative == "" then
+      table.insert(out, win)
+    end
+  end
+  return out
 end
 
 -- The listed buffers whose file sits under a path
@@ -61,9 +79,13 @@ function M.leave(bang)
     vim.cmd.quit({ bang = bang })
     return
   end
-  -- A split just closes
-  if #vim.api.nvim_tabpage_list_wins(0) > 1 then
-    vim.cmd.close()
+  -- A floating window such as a picker or a popup just closes, and a split just closes
+  if vim.api.nvim_win_get_config(0).relative ~= "" then
+    pcall(vim.api.nvim_win_close, 0, bang)
+    return
+  end
+  if #real_windows() > 1 then
+    vim.cmd.close({ bang = bang })
     return
   end
   -- Unsaved work stops a plain quit the way vim does
@@ -77,10 +99,12 @@ function M.leave(bang)
     vim.notify("E37: No write since last change in " .. table.concat(dirty, ", ") .. " (add ! to override)", vim.log.levels.ERROR)
     return
   end
-  -- Drop the project's buffers, go back to where we were, and show the projects page
+  -- Drop the project's buffers, the ZZ and ZQ maps, go back to where we were, and show the projects page
   local path = M.active.path
   M.active = nil
   vim.g.symphony_project = nil
+  pcall(vim.keymap.del, "n", "ZZ")
+  pcall(vim.keymap.del, "n", "ZQ")
   require("symphony.view").open("projects")
   for _, buf in ipairs(buffers_under(path)) do
     pcall(vim.api.nvim_buf_delete, buf, { force = true })
@@ -106,9 +130,10 @@ function M.setup()
   vim.api.nvim_create_user_command("SymphonyWq", function(opts)
     M.write_and_leave(opts.bang)
   end, { bang = true })
-  -- Only a bare q or wq at the start of the command line is taken, :qa and everything else stay vim's own
+  -- Only a bare q, wq, or x at the start of the command line is taken, :qa and everything else stay vim's own
   vim.cmd([[cnoreabbrev <expr> q (getcmdtype() == ':' && getcmdline() ==# 'q') ? 'SymphonyQuit' : 'q']])
   vim.cmd([[cnoreabbrev <expr> wq (getcmdtype() == ':' && getcmdline() ==# 'wq') ? 'SymphonyWq' : 'wq']])
+  vim.cmd([[cnoreabbrev <expr> x (getcmdtype() == ':' && getcmdline() ==# 'x') ? 'SymphonyWq' : 'x']])
 end
 
 return M

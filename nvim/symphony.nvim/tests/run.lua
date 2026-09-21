@@ -322,6 +322,26 @@ tests.project_enter_and_leave = function()
   assert_eq(vim.api.nvim_buf_is_valid(fbuf), false, "file buffer dropped")
 end
 
+-- A floating window on screen does not count as a split, leave still comes back to the page
+tests.project_leave_ignores_floating = function()
+  local project = require("symphony.project")
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.fn.writefile({ "x" }, dir .. "/c.txt")
+  local _, restore = fake_host({ projects = { name = "projects", lines = { "projects" }, keys = { "" }, filetype = "projects" } }, {})
+  project.enter(dir, "f")
+  vim.cmd.edit(dir .. "/c.txt")
+  -- A popup like a notification
+  local fbuf = vim.api.nvim_create_buf(false, true)
+  local float = vim.api.nvim_open_win(fbuf, false, { relative = "editor", width = 10, height = 2, row = 1, col = 1 })
+  assert_true(#vim.api.nvim_tabpage_list_wins(0) > 1, "float counted by nvim")
+  project.leave(false)
+  restore()
+  pcall(vim.api.nvim_win_close, float, true)
+  assert_eq(project.active, nil, "left despite the float")
+  assert_eq(vim.b[0].symphony_view, "projects", "projects page shown")
+end
+
 -- Unsaved changes stop a plain leave, a bang forces it
 tests.project_leave_refuses_dirty = function()
   local project = require("symphony.project")
