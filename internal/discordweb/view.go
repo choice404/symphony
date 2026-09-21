@@ -13,7 +13,7 @@ import (
 const ViewName = "discordweb"
 
 // homeHint is the second line of the home page
-const homeHint = "  <CR> open  r refresh  q back"
+const homeHint = "  <CR> open, on a folder open or close it  r refresh  q back"
 
 // chatHint is the second line of a chat page
 const chatHint = "  i say something  r refresh  q back"
@@ -100,7 +100,11 @@ func (w *Web) Render(ctx context.Context) (view.Page, error) {
 	lines = append(lines, "", "servers")
 	keys = append(keys, "", "")
 	for _, g := range guilds {
-		lines = append(lines, "  "+g.Name)
+		lines = append(lines, guildLine(g))
+		if g.Folder {
+			keys = append(keys, "f/"+g.ID)
+			continue
+		}
 		keys = append(keys, "s/"+g.ID)
 	}
 	return view.Page{Name: ViewName, Title: "discord", Lines: lines, Keys: keys, Cursor: 4, Filetype: "discordweb"}, nil
@@ -231,6 +235,13 @@ func (w *Web) Act(ctx context.Context, a view.Action) (view.Response, error) {
 		if a.Key == "" || !strings.Contains(a.Key, "/") {
 			return view.Response{Kind: view.KindNone}, nil
 		}
+		// A folder opens or closes in place and the home page reads again
+		if strings.HasPrefix(a.Key, "f/") {
+			if err := w.client.ToggleFolder(strings.TrimPrefix(a.Key, "f/")); err != nil {
+				return view.Fail(err.Error()), nil
+			}
+			return w.show(w.Render(ctx))
+		}
 		return w.show(w.RenderPath(ctx, a.Key))
 	case "send":
 		if !strings.HasPrefix(path, "c/") && !strings.HasPrefix(path, "dm/") {
@@ -270,6 +281,26 @@ func (w *Web) show(p view.Page, err error) (view.Response, error) {
  **/
 func loginPage(name string) view.Page {
 	return view.Page{Name: name, Title: "discord login", Lines: loginLines, Keys: make([]string, len(loginLines)), Filetype: "discordweb"}
+}
+
+/**
+ * guildLine
+ * Formats a sidebar entry, a folder with its open or closed sign, a server inside a folder indented
+ * @param g {Guild} - the entry
+ * @return string
+ **/
+func guildLine(g Guild) string {
+	if g.Folder {
+		sign := "+ "
+		if g.Open {
+			sign = "- "
+		}
+		return "  " + sign + g.Name + mark(g.Unread)
+	}
+	if g.Inside {
+		return "      " + g.Name + mark(g.Unread)
+	}
+	return "  " + g.Name + mark(g.Unread)
 }
 
 /**

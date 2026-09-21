@@ -30,12 +30,20 @@ const (
 	StateUnknown State = "unknown"
 )
 
-// Guild is one server in the sidebar
+// Guild is one server or folder in the sidebar
 type Guild struct {
 	// The id
 	ID string `json:"id"`
 	// The name
 	Name string `json:"name"`
+	// Whether this is a folder of servers rather than a server
+	Folder bool `json:"folder"`
+	// Whether the folder is open, the servers inside show as level two items
+	Open bool `json:"open"`
+	// Whether it sits inside a folder
+	Inside bool `json:"inside"`
+	// Whether the client marks it unread
+	Unread bool `json:"unread"`
 }
 
 // Channel is one channel or direct message in the list
@@ -71,7 +79,7 @@ const stateScript = `(() => {
   return 'unknown';
 })()`
 
-// guildsScript lists the servers from the sidebar, home is the direct message list and is skipped
+// guildsScript lists the servers and folders from the sidebar in the client's order, the name sits on the drag wrapper and in a hidden span that reads Unread messages, Name or N mentions, Name for a server and Name, folder, N unread messages for a folder, which also carries an aria-expanded element
 const guildsScript = `(() => {
   const out = [];
   const seen = new Set();
@@ -79,14 +87,27 @@ const guildsScript = `(() => {
     const id = el.getAttribute('data-list-item-id').replace('guildsnav___', '');
     if (!/^\d+$/.test(id) || seen.has(id)) continue;
     seen.add(id);
+    const text = (el.innerText || el.textContent || '').replace(/\s+/g, ' ').trim();
+    const dnd = el.closest('[data-dnd-name]');
+    const exp = el.hasAttribute('aria-expanded') ? el : el.querySelector('[aria-expanded]');
+    const folder = !!exp || /,\s*folder\b/i.test(text);
     let name = el.getAttribute('aria-label') || '';
-    if (!name) { const inner = el.querySelector('[aria-label]'); if (inner) name = inner.getAttribute('aria-label'); }
+    if (!name && dnd) name = dnd.getAttribute('data-dnd-name') || '';
+    if (!name) name = text.replace(/^(unread messages|\d+\s+mentions?),\s*/i, '').replace(/\s*,.*$/, '');
     if (!name) { const img = el.querySelector('img[alt]'); if (img) name = img.alt; }
     name = name.replace(/,\s*\d+\s+(mention|unread).*$/i, '').trim();
-    out.push({ id: id, name: name || id });
+    out.push({ id: id, name: name || id, folder: folder, open: !!exp && exp.getAttribute('aria-expanded') === 'true', inside: el.getAttribute('aria-level') === '2', unread: /unread messages|\d+\s+mention/i.test(text) });
   }
   return out;
 })()`
+
+// folderScript clicks a folder in the sidebar so it opens or closes
+const folderScript = `((id) => {
+  const el = document.querySelector('[data-list-item-id="guildsnav___' + id + '"]');
+  if (!el) return false;
+  el.click();
+  return true;
+})`
 
 // channelsScript lists the channels of the current server, or the direct messages on the home view
 const channelsScript = `((guild) => {
@@ -128,6 +149,17 @@ const messagesScript = `(() => {
   }
   return out;
 })()`
+
+// readyScript says whether the sidebar has rendered its servers, a fresh account has none so the caller gives up after a while
+const readyScript = `(() => {
+  for (const el of document.querySelectorAll('[data-list-item-id^="guildsnav___"]')) {
+    if (/^guildsnav___\d+$/.test(el.getAttribute('data-list-item-id'))) return true;
+  }
+  return false;
+})()`
+
+// readyWait is how long the sidebar may take to fill after the shell shows
+const readyWait = 8 * time.Second
 
 // titleScript is the client's own title, which names the channel and the server
 const titleScript = `document.title`
@@ -209,8 +241,8 @@ func (c *Client) Go(path string) (State, error) {
 		var st string
 		if err := t.Eval(stateScript, &st); err == nil && st != "unknown" {
 			if st == "app" {
-				// The chat and lists render a moment after the shell
-				t.Settle(700 * time.Millisecond)
+				// The sidebar and the chat render a moment after the shell
+				c.ready(t)
 			}
 			return State(st), nil
 		}
@@ -219,6 +251,24 @@ func (c *Client) Go(path string) (State, error) {
 		}
 		t.Settle(400 * time.Millisecond)
 	}
+}
+
+/**
+ * ready
+ * Waits for the sidebar to fill, then a moment more for the chat
+ * @param t {*browser.Tab} - the tab
+ * @return void
+ **/
+func (c *Client) ready(t *browser.Tab) {
+	deadline := time.Now().Add(readyWait)
+	for time.Now().Before(deadline) {
+		var ok bool
+		if err := t.Eval(readyScript, &ok); err == nil && ok {
+			break
+		}
+		t.Settle(300 * time.Millisecond)
+	}
+	t.Settle(700 * time.Millisecond)
 }
 
 /**
@@ -236,6 +286,25 @@ func (c *Client) Guilds() ([]Guild, error) {
 		return nil, fmt.Errorf("discord: read servers: %w", err)
 	}
 	return out, nil
+}
+
+/**
+ * ToggleFolder
+ * Opens or closes a folder in the sidebar so the servers inside show or hide
+ * @param id {string} - the folder id
+ * @return error
+ **/
+func (c *Client) ToggleFolder(id string) error {
+	t, err := c.tab()
+	if err != nil {
+		return err
+	}
+	var ok bool
+	if err := t.Eval(folderScript+fmt.Sprintf("(%q)", id), &ok); err != nil || !ok {
+		return fmt.Errorf("discord: no folder %s in the sidebar", id)
+	}
+	t.Settle(500 * time.Millisecond)
+	return nil
 }
 
 /**

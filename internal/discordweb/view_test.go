@@ -15,8 +15,11 @@ import (
 const app = `<html><head><title>Discord | #general | Demo Server</title></head><body>
 <nav aria-label="Servers sidebar"><div data-list-id="guildsnav">
   <div data-list-item-id="guildsnav___home" aria-label="Direct Messages"></div>
-  <div data-list-item-id="guildsnav___111" aria-label="Demo Server, 2 unread"></div>
-  <div data-list-item-id="guildsnav___222"><img alt="Other"></div>
+  <div data-dnd-name="Demo Server"><div role="treeitem" aria-level="1" data-list-item-id="guildsnav___111"><span>2 mentions, Demo Server</span></div></div>
+  <div data-dnd-name="Other"><div role="treeitem" aria-level="1" data-list-item-id="guildsnav___222"><span>Other</span></div></div>
+  <div data-dnd-name="Work"><div role="treeitem" aria-level="1" data-list-item-id="guildsnav___333"><div aria-expanded="true"></div><span>Work, folder, 3 unread messages</span></div></div>
+  <div role="treeitem" aria-level="2" data-list-item-id="guildsnav___444"><span>Team Alpha , 3 unread messages</span></div>
+  <div data-dnd-name="Old"><div role="treeitem" aria-level="1" data-list-item-id="guildsnav___555"><div aria-expanded="false"></div><span>Old, folder</span></div></div>
 </div></nav>
 <ul data-list-id="private-channels-uid_1">
   <li><a href="/channels/@me/900" aria-label="ada (direct message)">ada</a></li>
@@ -94,8 +97,11 @@ func TestHomeChannelsChatAndSay(t *testing.T) {
 	if !strings.Contains(text, "direct messages\n  ada (direct message)") && !strings.Contains(text, "direct messages\n  ada") {
 		t.Fatalf("dms = %s", text)
 	}
-	if !strings.Contains(text, "servers\n  Demo Server\n  Other") {
+	if !strings.Contains(text, "servers\n  Demo Server  *\n  Other\n  - Work  *\n      Team Alpha  *\n  + Old") {
 		t.Fatalf("servers = %s", text)
+	}
+	if p.Keys[len(p.Keys)-3] != "f/333" || p.Keys[len(p.Keys)-2] != "s/444" || p.Keys[len(p.Keys)-1] != "f/555" {
+		t.Fatalf("keys = %v", p.Keys)
 	}
 	if p.Keys[4] != "dm/900" {
 		t.Fatalf("dm key = %q", p.Keys[4])
