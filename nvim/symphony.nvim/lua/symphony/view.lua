@@ -105,13 +105,24 @@ local keymaps = {
   gitcommit = {
     ["gs"] = { "save" },
   },
+  discordmessages = {
+    ["i"] = { "send", nil, "say: " },
+  },
 }
 
 -- Sets the buffer local keymaps for a page's filetype
 function M.keymaps(buf, filetype)
-  -- Maps one key in normal mode for this buffer only
+  -- Maps one key in normal mode for this buffer only, a spec with a prompt asks for a line and sends it as the body
   local function map(lhs, spec)
     vim.keymap.set("n", lhs, function()
+      if spec[3] then
+        vim.ui.input({ prompt = spec[3] }, function(text)
+          if text and text ~= "" then
+            M.act(spec[1], spec[2], text)
+          end
+        end)
+        return
+      end
       M.act(spec[1], spec[2])
     end, { buffer = buf, nowait = true, silent = true })
   end
@@ -258,8 +269,8 @@ function M.open(name)
   return M.show(page)
 end
 
--- Sends an action to the host and applies the reply, the key is the one given, else the cursor line's, else the page's
-function M.act(action, key)
+-- Sends an action to the host and applies the reply, the key is the one given, else the cursor line's, else the page's, the body is the one given, else the buffer of an editable page
+function M.act(action, key, body)
   -- The current buffer and its view
   local buf = vim.api.nvim_get_current_buf()
   local view = vim.b[buf].symphony_view
@@ -276,10 +287,12 @@ function M.act(action, key)
       key = vim.b[buf].symphony_key or ""
     end
   end
-  -- The body, the whole buffer whenever the page is one you edit, so send, save, and anything else that submits gets it
-  local body = ""
-  if vim.bo[buf].modifiable then
-    body = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  -- The body, the one given, else the whole buffer whenever the page is one you edit
+  if body == nil then
+    body = ""
+    if vim.bo[buf].modifiable then
+      body = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+    end
   end
   -- Ask
   local page = vim.b[buf].symphony_page or ""

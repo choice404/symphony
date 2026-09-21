@@ -77,6 +77,11 @@ commands.calendar = function(args)
   require("symphony.view").open(name)
 end
 
+-- Opens the discord page
+commands.discord = function()
+  require("symphony.view").open("discord")
+end
+
 -- Opens the projects page
 commands.projects = function()
   require("symphony.view").open("projects")

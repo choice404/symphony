@@ -16,11 +16,12 @@ import (
  * @return view.Registry, func(), error
  **/
 func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
-	// Assemble around the plain backend
-	reg, err := assemble(mail.New(accounts(load), mail.Plain{}, services(load, logf)), newCalendar(load), newProjects(load))
+	// Assemble around the plain backend, discord's gateway is the one thing to close
+	dv, closeDiscord := newDiscord(load, logf)
+	reg, err := assemble(mail.New(accounts(load), mail.Plain{}, services(load, logf)), newCalendar(load), newProjects(load), dv)
 	if err != nil {
+		closeDiscord()
 		return view.Registry{}, nil, err
 	}
-	// Nothing to close
-	return reg, func() {}, nil
+	return reg, closeDiscord, nil
 }

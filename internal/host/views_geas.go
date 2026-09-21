@@ -25,15 +25,16 @@ const mailModule = "libmail.geas.so"
  * @return view.Registry, func(), error
  **/
 func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
-	// The accounts and the services as the config says right now
+	// The accounts and the services as the config says right now, and discord's gateway
 	src := accounts(load)
 	svc := services(load, logf)
+	dv, closeDiscord := newDiscord(load, logf)
 	// Find the module, the contract path is read once since the runtime loads it once
 	module, err := findModule(load())
 	if err != nil {
 		logf("geas: %v, mail runs without the contract", err)
-		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load))
-		return reg, func() {}, err
+		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load), dv)
+		return reg, closeDiscord, err
 	}
 	// Bring up the runtime and load it
 	rt, err := geas.Init()
@@ -60,12 +61,13 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	}
 	logf("geas: mail runs through %s", module)
 	// Assemble around the contract view
-	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load))
+	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load), dv)
 	if err != nil {
 		rt.Shutdown()
+		closeDiscord()
 		return view.Registry{}, nil, err
 	}
-	return reg, rt.Shutdown, nil
+	return reg, func() { closeDiscord(); rt.Shutdown() }, nil
 }
 
 /**

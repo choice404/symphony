@@ -59,6 +59,17 @@ g on a project's tree opens its status page, the branch with how far ahead or be
 roots = ["~/projects", "~/work"]
 ```
 
+# Discord
+
+Discord runs through a bot, since automating a normal account is against Discord's terms and gets the account banned. Make an application at discord.com/developers, add a bot to it, turn on the Message Content intent under Bot, and invite the bot to your servers with permission to read and send messages. Put the token in ~/.config/symphony/discord.token mode 600, or name another file with token_file under [discord], and restart the daemon. Home then shows the server count and how many messages arrived since you last looked.
+
+The discord page lists the servers, <CR> opens one to its text channels grouped by category with the unread counts, and <CR> on a channel shows its last fifty messages oldest first, grouped by day, your bot's own lines marked you. The daemon keeps the gateway open so new messages flow in as they happen, r shows them, and i asks for a line and sends it as the bot. What the bot cannot see, your own direct messages and servers it is not in, is not there, that is the trade for staying inside the rules.
+
+```
+[discord]
+token_file = "~/.config/symphony/discord.token"
+```
+
 # Calendar
 
 Every account with auth = oauth gets a calendar, the same login covers mail and calendar so one symphonyd authorize does both, and an account authorized before the calendar scope was added needs one more authorize. Home lists an agenda per account and an all agenda, each showing today's count and the next event. An agenda is the next thirty days grouped by day, days under [calendar] changes the span, ]d and [d move a week, gt comes back to today, ]a [a and ga move between accounts, <CR> opens the event with its attendees and link, and D deletes it on the server. c opens a new event page, an editable buffer with the title, start, end, all day, and location fields above a marker and the description below, and gs saves it to the account's own calendar. Times are typed as 2026-03-01 14:00, or as 2026-03-01 with all day set to yes.

@@ -4,10 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/choice404/symphony/internal/calendar"
 	"github.com/choice404/symphony/internal/calsync"
 	"github.com/choice404/symphony/internal/config"
+	"github.com/choice404/symphony/internal/discord"
 	"github.com/choice404/symphony/internal/gitapp"
 	"github.com/choice404/symphony/internal/jev"
 	"github.com/choice404/symphony/internal/mail"
@@ -144,14 +146,45 @@ func (e notSynced) Error() string {
 func errNotSynced(a mail.Account) error { return notSynced{name: a.Name} }
 
 /**
+ * newDiscord
+ * Builds the discord view, logged in through the bot token when one is on disk, and returns what closes the gateway
+ * @param load {func() config.Config} - returns the current config
+ * @param logf {func(string, ...interface{})} - where log lines go
+ * @return *discord.Discord, func()
+ **/
+func newDiscord(load func() config.Config, logf func(string, ...interface{})) (*discord.Discord, func()) {
+	// The token file, the default beside the config
+	path := load().Discord.TokenFile
+	if path == "" {
+		if dir, err := config.Dir(); err == nil {
+			path = filepath.Join(dir, "discord.token")
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		logf("discord: no token at %s, the discord page is off", path)
+		return discord.New(nil, discord.NewStore()), func() {}
+	}
+	store := discord.NewStore()
+	bot, err := discord.Connect(strings.TrimSpace(string(data)), store, logf)
+	if err != nil {
+		logf("%v, the discord page is off", err)
+		return discord.New(nil, store), func() {}
+	}
+	logf("discord: logged in as %s", bot.Me())
+	return discord.New(bot, store), bot.Close
+}
+
+/**
  * assemble
- * Builds the registry from the mail, calendar, and projects views and the home page that lists their entries
+ * Builds the registry from the mail, calendar, projects, and discord views and the home page that lists their entries
  * @param mv {*mail.Mail} - the mail view
  * @param cv {*calendar.Calendar} - the calendar view
  * @param pv {*projects.Projects} - the projects view
+ * @param dv {*discord.Discord} - the discord view
  * @return view.Registry, error
  **/
-func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects) (view.Registry, error) {
+func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *discord.Discord) (view.Registry, error) {
 	// The registry, assigned after home so the opener closes over it
 	var reg view.Registry
 	// The home view opens entries through the registry and lists every app's entries, projects first since it is the door to work
@@ -159,12 +192,13 @@ func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects) (view
 	entries := func() []view.Entry {
 		out := append([]view.Entry{}, pv.Entries()...)
 		out = append(out, mv.Entries()...)
-		return append(out, cv.Entries()...)
+		out = append(out, cv.Entries()...)
+		return append(out, dv.Entries()...)
 	}
 	home := view.NewHome(open, entries)
 	// Build the registry, git has no home entry since its pages live under a project
 	var err error
-	reg, err = view.NewRegistry(home, mv, cv, pv, gitapp.New())
+	reg, err = view.NewRegistry(home, mv, cv, pv, dv, gitapp.New())
 	if err != nil {
 		return view.Registry{}, err
 	}

@@ -86,7 +86,7 @@ end
 -- The subcommand list is sorted and holds the known names
 tests.subcommands_sorted = function()
   local names = require("symphony").subcommands()
-  assert_eq(table.concat(names, ","), "calendar,connect,health,home,leave,mail,open,ping,projects,status", "names")
+  assert_eq(table.concat(names, ","), "calendar,connect,discord,health,home,leave,mail,open,ping,projects,status", "names")
 end
 
 -- A fake host that answers render and action from tables
@@ -407,6 +407,17 @@ tests.project_leave_refuses_dirty = function()
   project.leave(true)
   restore()
   assert_eq(project.active, nil, "left with bang")
+end
+
+-- A body given to act wins over the buffer
+tests.act_explicit_body = function()
+  local calls, restore = fake_host({}, {})
+  local view = require("symphony.view")
+  view.show({ name = "discord/g/c", lines = { "chat" }, keys = { "" }, key = "c", filetype = "discordmessages" })
+  view.act("send", nil, "hello there")
+  restore()
+  assert_eq(calls[1][2], "send", "action")
+  assert_eq(calls[1][5], "hello there", "explicit body")
 end
 
 -- Any action from an editable page carries the buffer text, a read only page sends none

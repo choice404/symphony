@@ -23,8 +23,16 @@ type Config struct {
 	Calendar Calendar `toml:"calendar"`
 	// The projects section
 	Projects Projects `toml:"projects"`
+	// The discord section
+	Discord Discord `toml:"discord"`
 	// The geas section
 	Geas Geas `toml:"geas"`
+}
+
+// Discord is the [discord] section
+type Discord struct {
+	// The file holding the bot token, ~ is expanded, ~/.config/symphony/discord.token when unset
+	TokenFile string `toml:"token_file"`
 }
 
 // Projects is the [projects] section
@@ -279,6 +287,7 @@ func LoadFile(path string) (Config, error) {
 	for i := range c.Projects.Roots {
 		c.Projects.Roots[i] = expand(c.Projects.Roots[i])
 	}
+	c.Discord.TokenFile = expand(c.Discord.TokenFile)
 	return c, nil
 }
 
