@@ -19,7 +19,7 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	// Assemble around the plain backend, discord's gateway and the browser are what closes
 	dv, closeDiscord := newDiscord(load, logf)
 	eng := newBrowser(load, logf)
-	reg, err := assemble(mail.New(accounts(load), mail.Plain{}, services(load, logf)), newCalendar(load), newProjects(load), dv, eng)
+	reg, err := assemble(mail.New(accounts(load), mail.Plain{}, services(load, logf)), newCalendar(load), newProjects(load), dv, eng, load().Browser.Search)
 	if err != nil {
 		closeDiscord()
 		return view.Registry{}, nil, err

@@ -132,8 +132,24 @@ const messagesScript = `(() => {
 // titleScript is the client's own title, which names the channel and the server
 const titleScript = `document.title`
 
-// boxSelector is the message box, a slate editor
-const boxSelector = `[data-slate-editor="true"][role="textbox"], [data-slate-editor="true"]`
+// focusBoxScript finds the message box, the slate editor labelled Message, focuses it with the caret at the end, and says whether it found one
+const focusBoxScript = `(() => {
+  const box = document.querySelector('[data-slate-editor="true"][aria-label^="Message"]') || document.querySelector('form [data-slate-editor="true"]') || document.querySelector('[data-slate-editor="true"][role="textbox"]');
+  if (!box) return false;
+  box.focus();
+  const sel = window.getSelection();
+  if (sel) { const range = document.createRange(); range.selectNodeContents(box); range.collapse(false); sel.removeAllRanges(); sel.addRange(range); }
+  return true;
+})()`
+
+// boxTextScript is what the message box holds, empty once a message went out
+const boxTextScript = `(() => {
+  const box = document.querySelector('[data-slate-editor="true"][aria-label^="Message"]') || document.querySelector('form [data-slate-editor="true"]') || document.querySelector('[data-slate-editor="true"][role="textbox"]');
+  return box ? (box.textContent || '').trim() : '';
+})()`
+
+// sendWait is how long a message may take to leave the box
+const sendWait = 6 * time.Second
 
 // Client drives the discord tab
 type Client struct {
@@ -261,7 +277,7 @@ func (c *Client) Messages() ([]Message, string, error) {
 
 /**
  * Say
- * Types a line into the message box and presses Enter
+ * Puts a line into the message box as one insert, closes any autocomplete the text raised, presses Enter, and waits for the box to empty
  * @param text {string} - the message
  * @return error
  **/
@@ -270,15 +286,32 @@ func (c *Client) Say(text string) error {
 	if err != nil {
 		return err
 	}
-	if err := t.Wait(boxSelector, 5*time.Second); err != nil {
+	// Focus the box, a chat page always has one, a server page does not
+	var found bool
+	if err := t.Eval(focusBoxScript, &found); err != nil || !found {
 		return fmt.Errorf("discord: no message box here")
 	}
-	if err := t.Type(boxSelector, text); err != nil {
+	// One insert lands like a paste, which the editor takes whole, key by key typing trips its shortcuts
+	if err := t.Insert(text); err != nil {
 		return fmt.Errorf("discord: type: %w", err)
 	}
-	if err := t.Press(boxSelector, "\r"); err != nil {
+	// A trailing emoji or mention token opens a picker that would eat the Enter, Escape closes it and does nothing otherwise
+	t.Settle(150 * time.Millisecond)
+	_ = t.Key("Escape")
+	if err := t.Key("Enter"); err != nil {
 		return fmt.Errorf("discord: send: %w", err)
 	}
-	t.Settle(800 * time.Millisecond)
-	return nil
+	// The box empties once the client accepted the message
+	deadline := time.Now().Add(sendWait)
+	for {
+		var left string
+		if err := t.Eval(boxTextScript, &left); err == nil && left == "" {
+			t.Settle(600 * time.Millisecond)
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("discord: the message stayed in the box, it was not sent")
+		}
+		t.Settle(300 * time.Millisecond)
+	}
 }

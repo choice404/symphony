@@ -74,6 +74,20 @@ token_file = "~/.config/symphony/discord.token"
 
 The daemon runs a headless Chromium, google-chrome, chromium, or brave, whichever is on the path or the one chrome names under [browser], with a profile of its own under ~/.local/share/symphony/browser so logins survive. The browser page lists the open tabs, o asks for a url and / for a search, and a tab page is the site read as text, headings marked, every link numbered like [3], every field shown like {2 email: _} and every button like {4 Log in}. <CR> on a link line follows it, <CR> on a field line asks for a value and types it, on a button line clicks it, f asks for a link number, gs presses Enter in the field under the cursor, b and F go back and forward, r reloads, x closes the tab. :Symphony browser example.com opens a url straight away.
 
+A search goes to the url named by search under [browser] with the query appended, and when nothing is named it goes to a SearXNG on this machine at http://127.0.0.1:8888/search?q= since the public engines answer a headless browser with a captcha. The quickest SearXNG is the container:
+
+```
+docker run -d --name searxng --restart unless-stopped -p 8888:8080 -v ~/.config/searxng:/etc/searxng docker.io/searxng/searxng
+```
+
+Any instance works, and both settings are optional:
+
+```
+[browser]
+chrome = "/usr/bin/chromium"
+search = "https://searx.example.org/search?q="
+```
+
 Some logins need a real window once, a captcha, a passkey, a security key. symphonyd browser login <url> asks the daemon to let go of the profile, opens a visible browser window on it, and waits until you close the window. The daemon starts its headless browser again on the next page, now logged in.
 
 # Discord, your own account
@@ -84,7 +98,7 @@ discord (you) on home is Discord's own web client running inside that browser, s
 symphonyd browser login https://discord.com/login
 ```
 
-After that the page lists your direct messages and your servers, <CR> opens a server to its channels with unread marked, <CR> on a channel or a direct message shows the visible chat grouped by day, i asks for a line and types it into Discord's own message box. Everything comes from the client's page as it stands, so r reads it again and there is no history beyond what the client has rendered. The bot page stays for anything the daemon does on its own, such as unread counts on home while nothing is open.
+After that the page lists your direct messages and your servers, <CR> opens a server to its channels with unread marked, <CR> on a channel or a direct message shows the visible chat grouped by day, i asks for a line and puts it into Discord's own message box as one insert, closes any picker the text raised, and presses Enter, and the page reads again once the box has emptied, so a message that stays in the box comes back as an error instead of a silent miss. Everything comes from the client's page as it stands, so r reads it again and there is no history beyond what the client has rendered. The bot page stays for anything the daemon does on its own, such as unread counts on home while nothing is open.
 
 The client's page structure is Discord's and changes without notice, so a page that comes up empty after an update means the readers need a refresh, not that the login is gone.
 

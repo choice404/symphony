@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/chromedp"
+	"github.com/chromedp/chromedp/kb"
 )
 
 // navTimeout is how long a navigation may take
@@ -384,6 +386,32 @@ func (t *Tab) Wait(selector string, limit time.Duration) error {
 func (t *Tab) Type(selector, text string) error {
 	clear := fmt.Sprintf(`(() => { const el = document.querySelector(%q); if (el && 'value' in el) { el.value = ''; el.dispatchEvent(new Event('input', {bubbles: true})); } return true; })()`, selector)
 	return t.run(actTimeout, chromedp.Focus(selector, chromedp.ByQuery), chromedp.Evaluate(clear, nil), chromedp.SendKeys(selector, text, chromedp.ByQuery))
+}
+
+/**
+ * Insert
+ * Inserts text into whatever has focus as one edit, the way a paste lands, which rich editors take better than key by key typing
+ * @param text {string} - the text
+ * @return error
+ **/
+func (t *Tab) Insert(text string) error {
+	return t.run(actTimeout, input.InsertText(text))
+}
+
+/**
+ * Key
+ * Sends a key to whatever has focus, Enter or Escape by name, anything else as typed
+ * @param key {string} - the key name
+ * @return error
+ **/
+func (t *Tab) Key(key string) error {
+	switch key {
+	case "Enter":
+		key = kb.Enter
+	case "Escape":
+		key = kb.Escape
+	}
+	return t.run(actTimeout, chromedp.KeyEvent(key))
 }
 
 /**

@@ -64,10 +64,10 @@ func TestRenderWrapsAndKeys(t *testing.T) {
 }
 
 func TestNormalize(t *testing.T) {
-	if normalize("example.com") != "https://example.com" || normalize("http://a.b/c") != "http://a.b/c" {
+	if normalize(DefaultSearch, "example.com") != "https://example.com" || normalize(DefaultSearch, "http://a.b/c") != "http://a.b/c" {
 		t.Fatal("host or url")
 	}
-	if !strings.HasPrefix(normalize("go tui"), searchURL) || !strings.HasPrefix(normalize("golang"), searchURL) {
+	if !strings.HasPrefix(normalize(DefaultSearch, "go tui"), DefaultSearch) || normalize("http://s/?q=", "golang") != "http://s/?q=golang" {
 		t.Fatal("phrase should search")
 	}
 }
@@ -75,7 +75,7 @@ func TestNormalize(t *testing.T) {
 func TestOpenReadFollowFill(t *testing.T) {
 	srv := site(t)
 	e := engine(t)
-	b := NewView(e)
+	b := NewView(e, "")
 	ctx := context.Background()
 	// A url from the tabs page opens a tab
 	r, _ := b.Act(ctx, view.Action{Name: "url", Page: "browser", Body: srv.URL})

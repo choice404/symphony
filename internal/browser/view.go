@@ -20,23 +20,29 @@ const tabsHint = "  <CR> open tab  o url  / search  x close  r refresh  q back"
 // pageHint is the second line of a tab page
 const pageHint = "  <CR> follow or fill  f link number  gs submit  b back  F forward  r reload  o url  / search  x close  q tabs"
 
-// searchURL is where a search goes, the html version renders as text
-const searchURL = "https://html.duckduckgo.com/html/?q="
+// DefaultSearch is where a search goes when the config names nothing, a searxng on this machine, the big engines throw captchas at a headless browser
+const DefaultSearch = "http://127.0.0.1:8888/search?q="
 
 // Browser is the browser app over an engine
 type Browser struct {
 	// The engine
 	engine *Engine
+	// The search url the query is appended to
+	search string
 }
 
 /**
  * NewView
  * Builds the browser view
  * @param engine {*Engine} - the engine
+ * @param search {string} - the search url a query is appended to, empty for the default
  * @return *Browser
  **/
-func NewView(engine *Engine) *Browser {
-	return &Browser{engine: engine}
+func NewView(engine *Engine, search string) *Browser {
+	if search == "" {
+		search = DefaultSearch
+	}
+	return &Browser{engine: engine, search: search}
 }
 
 /**
@@ -156,12 +162,12 @@ func (b *Browser) Act(ctx context.Context, a view.Action) (view.Response, error)
 	case "open":
 		return b.open(ctx, tab, a)
 	case "url":
-		return b.navigate(ctx, tab, normalize(a.Body))
+		return b.navigate(ctx, tab, normalize(b.search, a.Body))
 	case "search":
 		if strings.TrimSpace(a.Body) == "" {
 			return view.Response{Kind: view.KindNone}, nil
 		}
-		return b.navigate(ctx, tab, searchURL+url.QueryEscape(strings.TrimSpace(a.Body)))
+		return b.navigate(ctx, tab, b.search+url.QueryEscape(strings.TrimSpace(a.Body)))
 	case "follow":
 		if tab == nil {
 			return view.Fail("browser: follow works on a tab page"), nil
@@ -406,10 +412,11 @@ func (b *Browser) closeTab(ctx context.Context, tab *Tab, a view.Action) (view.R
 /**
  * normalize
  * Turns what was typed into a url, a bare host gets https and a phrase becomes a search
+ * @param search {string} - the search url a query is appended to
  * @param s {string} - the input
  * @return string
  **/
-func normalize(s string) string {
+func normalize(search, s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
@@ -418,7 +425,7 @@ func normalize(s string) string {
 		return s
 	}
 	if strings.Contains(s, " ") || !strings.Contains(s, ".") {
-		return searchURL + url.QueryEscape(s)
+		return search + url.QueryEscape(s)
 	}
 	return "https://" + s
 }

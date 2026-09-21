@@ -34,7 +34,7 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	module, err := findModule(load())
 	if err != nil {
 		logf("geas: %v, mail runs without the contract", err)
-		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load), dv, eng)
+		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load), dv, eng, load().Browser.Search)
 		return reg, func() { closeDiscord(); eng.Stop() }, err
 	}
 	// Bring up the runtime and load it
@@ -62,7 +62,7 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	}
 	logf("geas: mail runs through %s", module)
 	// Assemble around the contract view
-	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load), dv, eng)
+	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load), dv, eng, load().Browser.Search)
 	if err != nil {
 		rt.Shutdown()
 		closeDiscord()

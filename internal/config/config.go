@@ -35,6 +35,8 @@ type Config struct {
 type Browser struct {
 	// The chromium binary, found on the path when unset
 	Chrome string `toml:"chrome"`
+	// The search url a query is appended to, a local searxng when unset
+	Search string `toml:"search"`
 }
 
 // Discord is the [discord] section

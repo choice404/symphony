@@ -31,7 +31,7 @@ const app = `<html><head><title>Discord | #general | Demo Server</title></head><
   <li id="chat-messages-10-2"><time datetime="2026-01-02T17:01:00.000Z"></time><div id="message-content-2">second line<br>more</div></li>
   <li id="chat-messages-10-3"><h3><span id="message-username-3">bo</span></h3><time datetime="2026-01-03T09:00:00.000Z"></time><div id="message-content-3">look</div><div class="attachment-x">img</div></li>
 </ol>
-<div role="textbox" data-slate-editor="true" contenteditable="true"></div>
+<div role="textbox" data-slate-editor="true" contenteditable="true" aria-label="Message #general"></div>
 <script>
 document.querySelector('[data-slate-editor]').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {

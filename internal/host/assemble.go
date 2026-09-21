@@ -209,13 +209,14 @@ func newDiscord(load func() config.Config, logf func(string, ...interface{})) (*
  * @param pv {*projects.Projects} - the projects view
  * @param dv {*discord.Discord} - the discord view
  * @param eng {*browser.Engine} - the browser engine behind the browser and discord web views
+ * @param search {string} - the search url from the config, empty for the default
  * @return view.Registry, error
  **/
-func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *discord.Discord, eng *browser.Engine) (view.Registry, error) {
+func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *discord.Discord, eng *browser.Engine, search string) (view.Registry, error) {
 	// The registry, assigned after home so the opener closes over it
 	var reg view.Registry
 	// The browser and the discord web view share the engine
-	bv := browser.NewView(eng)
+	bv := browser.NewView(eng, search)
 	wv := discordweb.New(discordweb.NewClient(eng))
 	// The home view opens entries through the registry and lists every app's entries, projects first since it is the door to work
 	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
