@@ -45,6 +45,8 @@ const (
 	KindPage Kind = "page"
 	// KindNotify means show the text as a message
 	KindNotify Kind = "notify"
+	// KindEnter means leave the pages and work in a directory, project mode, Path says where and Text names it
+	KindEnter Kind = "enter"
 )
 
 // Response is what an action hands back to the plugin
@@ -59,6 +61,8 @@ type Response struct {
 	Error bool
 	// A buffer name to close after applying the response, such as a sent compose page
 	Close string
+	// The directory to enter for KindEnter
+	Path string
 }
 
 // View is one app as the plugin sees it
@@ -148,6 +152,9 @@ func (r Response) ToMap() map[string]interface{} {
 	case KindNotify:
 		m["text"] = r.Text
 		m["error"] = r.Error
+	case KindEnter:
+		m["text"] = r.Text
+		m["path"] = r.Path
 	}
 	// Return the map
 	return m

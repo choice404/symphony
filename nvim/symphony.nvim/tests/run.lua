@@ -86,7 +86,7 @@ end
 -- The subcommand list is sorted and holds the known names
 tests.subcommands_sorted = function()
   local names = require("symphony").subcommands()
-  assert_eq(table.concat(names, ","), "calendar,connect,health,home,mail,open,ping,status", "names")
+  assert_eq(table.concat(names, ","), "calendar,connect,health,home,leave,mail,open,ping,projects,status", "names")
 end
 
 -- A fake host that answers render and action from tables
@@ -290,6 +290,62 @@ tests.status_without_host = function()
   require("symphony").command({ "status" })
   vim.notify = old
   assert_eq(seen, "symphony: no host attached", "status text")
+end
+
+
+-- Entering a project changes the directory, sets the global, and installs the quit commands
+tests.project_enter_and_leave = function()
+  local project = require("symphony.project")
+  local view = require("symphony.view")
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir .. "/src", "p")
+  vim.fn.writefile({ "hello" }, dir .. "/src/a.txt")
+  local before = vim.fn.getcwd()
+  -- The commands exist from setup
+  local cmds = vim.api.nvim_get_commands({})
+  assert_true(cmds.SymphonyQuit ~= nil and cmds.SymphonyWq ~= nil, "quit commands missing")
+  -- Enter
+  local _, restore = fake_host({ projects = { name = "projects", lines = { "projects" }, keys = { "" }, filetype = "projects" } }, {})
+  project.enter(dir, "demo")
+  assert_eq(vim.fn.getcwd(), dir, "cwd")
+  assert_eq(vim.g.symphony_project, dir, "global")
+  assert_true(project.active ~= nil, "active")
+  -- Open a file under it and leave, the file buffer goes and the projects page shows
+  vim.cmd.edit(dir .. "/src/a.txt")
+  local fbuf = vim.api.nvim_get_current_buf()
+  project.leave(false)
+  restore()
+  assert_eq(project.active, nil, "left")
+  assert_eq(vim.g.symphony_project, nil, "global cleared")
+  assert_eq(vim.fn.getcwd(), before, "cwd restored")
+  assert_eq(vim.b[0].symphony_view, "projects", "projects page shown")
+  assert_eq(vim.api.nvim_buf_is_valid(fbuf), false, "file buffer dropped")
+end
+
+-- Unsaved changes stop a plain leave, a bang forces it
+tests.project_leave_refuses_dirty = function()
+  local project = require("symphony.project")
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.fn.writefile({ "x" }, dir .. "/b.txt")
+  local _, restore = fake_host({ projects = { name = "projects", lines = { "projects" }, keys = { "" }, filetype = "projects" } }, {})
+  project.enter(dir, "d")
+  vim.cmd.edit(dir .. "/b.txt")
+  vim.api.nvim_buf_set_lines(0, 0, -1, false, { "changed" })
+  local seen
+  local old = vim.notify
+  vim.notify = function(msg, level)
+    if level == vim.log.levels.ERROR then
+      seen = msg
+    end
+  end
+  project.leave(false)
+  vim.notify = old
+  assert_true(project.active ~= nil, "still active after refused leave")
+  assert_true(seen ~= nil and seen:find("E37", 1, true) ~= nil, "E37 shown")
+  project.leave(true)
+  restore()
+  assert_eq(project.active, nil, "left with bang")
 end
 
 -- Run every test in name order

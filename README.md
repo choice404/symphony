@@ -42,6 +42,17 @@ make install copies the last built binaries into ~/.local/bin and the contract m
 
 Because the socket speaks msgpack rpc, a normal nvim can use it too. Put nvim/symphony.nvim on your runtimepath like any other plugin, start symphonyd, and :Symphony mail dials the socket and shows the inbox in that nvim, no TUI needed. :Symphony connect takes a socket path when it is not the default, :Symphony status says whether you are attached, and :checkhealth symphony shows the socket and pings the daemon.
 
+# Projects
+
+Home starts with a projects entry. The page lists every directory one level under your project roots, ~/projects unless [projects] roots says otherwise, with the branch and how many paths are dirty, the last commit and how long ago, and when you last opened it through symphony, most recently opened first. <CR> enters the project: nvim changes directory into it, an empty buffer opens, and whatever file picker you have comes up, Telescope, fzf-lua, oil, neo-tree, or netrw, in that order of preference. From there it is your own nvim, your config, your plugins, your keymaps. When you are done, :q brings you back to the projects page instead of leaving, the project's file buffers are dropped, and the directory goes back to what it was. :wq writes first. Unsaved changes stop a plain :q with the same E37 vim gives, :q! goes anyway, and :qa still quits symphony itself. A split closes on :q the way it always did. :Symphony leave is the same as :q! from anywhere.
+
+c opens a new project page with the name, the root, and whether to git init, and gs makes the directory with a README and enters it. D forgets a project's opened time, it does not touch the directory.
+
+```
+[projects]
+roots = ["~/projects", "~/work"]
+```
+
 # Calendar
 
 Every account with auth = oauth gets a calendar, the same login covers mail and calendar so one symphonyd authorize does both, and an account authorized before the calendar scope was added needs one more authorize. Home lists an agenda per account and an all agenda, each showing today's count and the next event. An agenda is the next thirty days grouped by day, days under [calendar] changes the span, ]d and [d move a week, gt comes back to today, ]a [a and ga move between accounts, <CR> opens the event with its attendees and link, and D deletes it on the server. c opens a new event page, an editable buffer with the title, start, end, all day, and location fields above a marker and the description below, and gs saves it to the account's own calendar. Times are typed as 2026-03-01 14:00, or as 2026-03-01 with all day set to yes.

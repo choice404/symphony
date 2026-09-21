@@ -4,6 +4,9 @@ if vim.g.loaded_symphony then
 end
 vim.g.loaded_symphony = true
 
+-- Project mode's commands and the :q and :wq abbreviations
+require("symphony.project").setup()
+
 -- The :Symphony command hands its words to the lua module
 vim.api.nvim_create_user_command("Symphony", function(opts)
   require("symphony").command(opts.fargs)

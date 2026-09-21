@@ -17,7 +17,7 @@ import (
  **/
 func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
 	// Assemble around the plain backend
-	reg, err := assemble(mail.New(accounts(load), mail.Plain{}, services(load, logf)), newCalendar(load))
+	reg, err := assemble(mail.New(accounts(load), mail.Plain{}, services(load, logf)), newCalendar(load), newProjects(load))
 	if err != nil {
 		return view.Registry{}, nil, err
 	}

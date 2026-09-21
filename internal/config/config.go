@@ -21,8 +21,28 @@ type Config struct {
 	Mail Mail `toml:"mail"`
 	// The calendar section
 	Calendar Calendar `toml:"calendar"`
+	// The projects section
+	Projects Projects `toml:"projects"`
 	// The geas section
 	Geas Geas `toml:"geas"`
+}
+
+// Projects is the [projects] section
+type Projects struct {
+	// The directories whose children are projects, ~ is expanded, ~/projects when unset
+	Roots []string `toml:"roots"`
+}
+
+/**
+ * RootDirs
+ * Returns the project roots, ~/projects when none are set
+ * @return []string
+ **/
+func (p Projects) RootDirs() []string {
+	if len(p.Roots) > 0 {
+		return append([]string(nil), p.Roots...)
+	}
+	return []string{expand("~/projects")}
 }
 
 // Calendar is the [calendar] section
@@ -256,6 +276,9 @@ func LoadFile(path string) (Config, error) {
 		c.Mail.Accounts[i].PassFile = expand(c.Mail.Accounts[i].PassFile)
 	}
 	c.Geas.Contracts = expand(c.Geas.Contracts)
+	for i := range c.Projects.Roots {
+		c.Projects.Roots[i] = expand(c.Projects.Roots[i])
+	}
 	return c, nil
 }
 

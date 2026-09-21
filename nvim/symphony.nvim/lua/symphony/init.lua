@@ -77,6 +77,16 @@ commands.calendar = function(args)
   require("symphony.view").open(name)
 end
 
+-- Opens the projects page
+commands.projects = function()
+  require("symphony.view").open("projects")
+end
+
+-- Leaves project mode and comes back to the projects page
+commands.leave = function()
+  require("symphony.project").leave(true)
+end
+
 -- Runs one subcommand from the words after :Symphony
 function M.command(fargs)
   -- The subcommand name, home when none was given

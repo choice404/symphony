@@ -79,6 +79,13 @@ local keymaps = {
   eventedit = {
     ["gs"] = { "save" },
   },
+  projects = {
+    ["c"] = { "new" },
+    ["D"] = { "forget" },
+  },
+  projectnew = {
+    ["gs"] = { "save" },
+  },
 }
 
 -- Sets the buffer local keymaps for a page's filetype
@@ -189,6 +196,12 @@ function M.apply(resp)
     local level = resp.error and vim.log.levels.ERROR or vim.log.levels.INFO
     vim.notify(resp.text, level)
     M.close(resp.close)
+    return
+  end
+  -- A directory is entered as a project
+  if resp.kind == "enter" then
+    M.close(resp.close)
+    require("symphony.project").enter(resp.path, resp.text)
   end
 end
 
