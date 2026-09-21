@@ -19,8 +19,27 @@ const ViewName = "config"
 // hint is the second line of the page
 const hint = "  e edit  R reload now  r refresh  q back"
 
+// editorHint is the line about the editor files
+const editorHint = "  k keymaps  o options  p plugins  t theme file  T pick a colorscheme"
+
 // reloadTag is the text on an edit response that asks the plugin to reload after every write
 const reloadTag = "reload"
+
+// editorFile is one of the user's editor files under lua/user
+type editorFile struct {
+	// The file name under lua/user
+	name string
+	// What the plugin does after a write, source, theme, or restart
+	onWrite string
+}
+
+// editorFiles maps the config page actions to the user files
+var editorFiles = map[string]editorFile{
+	"keymaps": {name: "keymaps.lua", onWrite: "source"},
+	"options": {name: "options.lua", onWrite: "source"},
+	"plugins": {name: "plugins.lua", onWrite: "restart"},
+	"theme":   {name: "theme.lua", onWrite: "theme"},
+}
 
 // Settings is the config app
 type Settings struct {
@@ -28,6 +47,10 @@ type Settings struct {
 	path func() (string, error)
 	// Asks the daemon to read the config again and rebuild its views, nil when reloading is not wired
 	reload func() error
+	// Returns the editor config directory, nil when the editor files are not wired
+	editorDir func() (string, error)
+	// Returns the shipped starter for a user file by name under lua/user, nil when not wired
+	starter func(name string) ([]byte, error)
 }
 
 /**
@@ -39,6 +62,17 @@ type Settings struct {
  **/
 func New(path func() (string, error), reload func() error) *Settings {
 	return &Settings{path: path, reload: reload}
+}
+
+/**
+ * WithEditor
+ * Wires the editor files, the directory they live in and the shipped starter written when one is missing
+ * @param dir {func() (string, error)} - returns the editor config directory
+ * @param starter {func(string) ([]byte, error)} - returns the starter for a file name under lua/user
+ * @return *Settings
+ **/
+func (s *Settings) WithEditor(dir func() (string, error), starter func(string) ([]byte, error)) *Settings {
+	return &Settings{path: s.path, reload: s.reload, editorDir: dir, starter: starter}
 }
 
 /**
@@ -82,7 +116,11 @@ func (s *Settings) Render(ctx context.Context) (view.Page, error) {
 	if err != nil {
 		return view.Page{}, err
 	}
-	lines := []string{"config  " + short(p), hint, ""}
+	lines := []string{"config  " + short(p), hint}
+	if s.editorDir != nil {
+		lines = append(lines, editorHint)
+	}
+	lines = append(lines, "")
 	// A missing file
 	if _, err := os.Stat(p); err != nil {
 		lines = append(lines, "no config file yet, e writes one with every section commented out")
@@ -131,6 +169,12 @@ func (s *Settings) Act(ctx context.Context, a view.Action) (view.Response, error
 			return view.Fail(err.Error()), nil
 		}
 		return view.Response{Kind: view.KindEdit, Path: p, Text: reloadTag}, nil
+	case "keymaps", "options", "plugins", "theme":
+		p, err := s.editorFile(editorFiles[a.Name])
+		if err != nil {
+			return view.Fail(err.Error()), nil
+		}
+		return view.Response{Kind: view.KindEdit, Path: p, Text: editorFiles[a.Name].onWrite}, nil
 	case "reload":
 		if s.reload == nil {
 			return view.Fail("config: reloading is not available here"), nil
@@ -168,6 +212,39 @@ func (s *Settings) ensure() (string, error) {
 		return "", fmt.Errorf("config: %w", err)
 	}
 	if err := os.WriteFile(p, []byte(Template), 0o600); err != nil {
+		return "", fmt.Errorf("config: %w", err)
+	}
+	return p, nil
+}
+
+/**
+ * editorFile
+ * Returns the path of a user editor file, writing the shipped starter when it is missing
+ * @param f {editorFile} - the file
+ * @return string, error
+ **/
+func (s *Settings) editorFile(f editorFile) (string, error) {
+	if s.editorDir == nil || s.starter == nil {
+		return "", errors.New("config: the editor files are not available here")
+	}
+	dir, err := s.editorDir()
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, "lua", "user", f.name)
+	if _, err := os.Stat(p); err == nil {
+		return p, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("config: %w", err)
+	}
+	data, err := s.starter(f.name)
+	if err != nil {
+		return "", fmt.Errorf("config: no starter for %s: %w", f.name, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return "", fmt.Errorf("config: %w", err)
+	}
+	if err := os.WriteFile(p, data, 0o644); err != nil {
 		return "", fmt.Errorf("config: %w", err)
 	}
 	return p, nil

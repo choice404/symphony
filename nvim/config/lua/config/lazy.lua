@@ -14,11 +14,12 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
 end
 vim.opt.runtimepath:prepend(lazypath)
 
--- The plugins, LazyVim first so its defaults load before anything overrides them, then symphony's own specs, then anything you drop into lua/plugins
+-- The plugins, LazyVim first so its defaults load before anything overrides them, then symphony's own specs, then yours from lua/user/plugins.lua and anything dropped into lua/plugins
 require("lazy").setup({
   spec = {
     { "LazyVim/LazyVim", import = "lazyvim.plugins" },
     { import = "plugins" },
+    { import = "user.plugins" },
   },
   defaults = {
     -- LazyVim plugins lazy load, symphony's own load at start

@@ -84,6 +84,13 @@ tests.connect_missing_socket = function()
 end
 
 -- The subcommand list is sorted and holds the known names
+tests.theme_rewrite = function()
+  local theme = require("symphony.theme")
+  local got = theme.rewrite('return {\n  colorscheme = "tokyonight-moon",\n  background = "dark",\n}', "terafox")
+  assert_eq(got, 'return {\n  colorscheme = "terafox",\n  background = "dark",\n}', "replaces the line")
+  assert_eq(theme.rewrite("return {\n}", "nord"), 'return {\n  colorscheme = "nord",\n}', "adds the line")
+end
+
 tests.dashboard_keys = function()
   local keys = require("symphony.dashboard").keys({
     { name = "projects" }, { name = "mail" }, { name = "calendar" }, { name = "discord" }, { name = "discordweb" }, { name = "browser" }, { name = "config" }, { name = "cats" },
@@ -97,7 +104,7 @@ end
 
 tests.subcommands_sorted = function()
   local names = require("symphony").subcommands()
-  assert_eq(table.concat(names, ","), "browser,calendar,config,connect,discord,health,home,leave,mail,open,ping,projects,status", "names")
+  assert_eq(table.concat(names, ","), "browser,calendar,config,connect,discord,health,home,leave,mail,open,ping,projects,status,theme", "names")
 end
 
 -- A fake host that answers render and action from tables

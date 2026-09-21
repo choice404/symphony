@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	symphony "github.com/choice404/symphony"
 	"github.com/choice404/symphony/internal/browser"
 	"github.com/choice404/symphony/internal/calendar"
 	"github.com/choice404/symphony/internal/calsync"
@@ -16,6 +17,7 @@ import (
 	"github.com/choice404/symphony/internal/jev"
 	"github.com/choice404/symphony/internal/mail"
 	"github.com/choice404/symphony/internal/mailsync"
+	"github.com/choice404/symphony/internal/nvim"
 	"github.com/choice404/symphony/internal/projects"
 	"github.com/choice404/symphony/internal/settings"
 	"github.com/choice404/symphony/internal/spam"
@@ -220,8 +222,11 @@ func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *d
 	// The browser and the discord web view share the engine
 	bv := browser.NewView(eng, search)
 	wv := discordweb.New(discordweb.NewClient(eng))
-	// The config page, last on home
-	sv := settings.New(config.Path, reload)
+	// The config page, last on home, with the editor's user files served from the embedded starters
+	starter := func(name string) ([]byte, error) {
+		return symphony.ConfigFS.ReadFile(symphony.ConfigRoot + "/" + nvim.UserDir + name)
+	}
+	sv := settings.New(config.Path, reload).WithEditor(nvim.ConfigDir, starter)
 	// The home view opens entries through the registry and lists every app's entries, projects first since it is the door to work
 	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
 	entries := func() []view.Entry {

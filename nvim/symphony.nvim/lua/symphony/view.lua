@@ -112,6 +112,10 @@ local keymaps = {
   config = {
     ["e"] = { "edit" },
     ["R"] = { "reload" },
+    ["k"] = { "keymaps" },
+    ["o"] = { "options" },
+    ["p"] = { "plugins" },
+    ["t"] = { "theme" },
   },
   discordchat = {
     ["i"] = { "send", nil, "say: " },
@@ -151,6 +155,12 @@ function M.keymaps(buf, filetype)
   -- The common ones, on a browser page enter asks for a value when the line is a field
   for lhs, spec in pairs(keymaps.common) do
     map(lhs, spec)
+  end
+  -- The config page picks a colorscheme with T
+  if filetype == "config" then
+    vim.keymap.set("n", "T", function()
+      require("symphony").command({ "theme" })
+    end, { buffer = buf, nowait = true, silent = true })
   end
   if filetype == "browsertab" then
     vim.keymap.set("n", "<CR>", function()
@@ -287,11 +297,14 @@ function M.apply(resp)
     require("symphony.project").enter(resp.path, resp.text)
     return
   end
-  -- A file is opened in the editor, and when the host asks, every write of it makes the daemon read the config again
+  -- A file is opened in the editor, and the host's text says what a write of it should do, reload the daemon, source the file, apply the theme, or note a restart
   if resp.kind == "edit" then
     vim.cmd.edit(vim.fn.fnameescape(resp.path))
+    local buf = vim.api.nvim_get_current_buf()
     if resp.text == "reload" then
-      M.reload_on_write(vim.api.nvim_get_current_buf())
+      M.reload_on_write(buf)
+    elseif resp.text == "source" or resp.text == "theme" or resp.text == "restart" then
+      M.apply_on_write(buf, resp.text)
     end
   end
 end
@@ -311,6 +324,36 @@ function M.reload_on_write(buf)
           vim.notify("symphony: config reloaded")
         else
           vim.notify("symphony: " .. tostring(err), vim.log.levels.ERROR)
+        end
+      end)
+    end,
+  })
+end
+
+-- Makes every write of the buffer apply the file, source runs it, theme applies the colors, restart only says so
+function M.apply_on_write(buf, how)
+  local group = vim.api.nvim_create_augroup("symphony_apply_" .. buf, { clear = true })
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    buffer = buf,
+    callback = function()
+      local path = vim.api.nvim_buf_get_name(buf)
+      local ok, err = true, nil
+      if how == "source" then
+        ok, err = pcall(dofile, path)
+      elseif how == "theme" then
+        ok, err = pcall(function()
+          require("config.theme").apply()
+        end)
+      end
+      vim.schedule(function()
+        vim.cmd.redraw()
+        if not ok then
+          vim.notify("symphony: " .. tostring(err), vim.log.levels.ERROR)
+        elseif how == "restart" then
+          vim.notify("symphony: new plugins load on the next start, :Lazy installs them now")
+        else
+          vim.notify("symphony: applied " .. vim.fn.fnamemodify(path, ":t"))
         end
       end)
     end,

@@ -114,6 +114,16 @@ commands.browser = function(args)
   end
 end
 
+-- Picks a colorscheme and keeps it in the theme file
+commands.theme = function(args)
+  local theme = require("symphony.theme")
+  if args[1] then
+    theme.choose(args[1])
+    return
+  end
+  theme.pick()
+end
+
 -- Opens the config file in the editor, writing a commented one first when there is none, every write reloads the daemon
 commands.config = function()
   local view = require("symphony.view")

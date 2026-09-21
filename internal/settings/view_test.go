@@ -75,3 +75,46 @@ func TestBadFileAndReload(t *testing.T) {
 		t.Fatalf("no reloader = %+v", r)
 	}
 }
+
+func TestEditorFilesWriteStarterOnce(t *testing.T) {
+	dir := t.TempDir()
+	s := New(func() (string, error) { return filepath.Join(dir, "config.toml"), nil }, nil).WithEditor(
+		func() (string, error) { return filepath.Join(dir, "nvim"), nil },
+		func(name string) ([]byte, error) { return []byte("-- starter " + name), nil },
+	)
+	ctx := context.Background()
+	page, _ := s.Render(ctx)
+	if !strings.Contains(page.Lines[2], "k keymaps") {
+		t.Fatalf("hint = %v", page.Lines)
+	}
+	// The first edit writes the starter, the second finds the file as it stands
+	r, _ := s.Act(ctx, view.Action{Name: "keymaps"})
+	want := filepath.Join(dir, "nvim", "lua", "user", "keymaps.lua")
+	if r.Kind != view.KindEdit || r.Path != want || r.Text != "source" {
+		t.Fatalf("keymaps = %+v", r)
+	}
+	if got, _ := os.ReadFile(want); string(got) != "-- starter keymaps.lua" {
+		t.Fatalf("starter = %q", got)
+	}
+	if err := os.WriteFile(want, []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, _ = s.Act(ctx, view.Action{Name: "keymaps"})
+	if got, _ := os.ReadFile(r.Path); string(got) != "mine" {
+		t.Fatalf("kept = %q", got)
+	}
+	// The theme and plugins files carry their own write hints
+	r, _ = s.Act(ctx, view.Action{Name: "theme"})
+	if r.Text != "theme" {
+		t.Fatalf("theme = %+v", r)
+	}
+	r, _ = s.Act(ctx, view.Action{Name: "plugins"})
+	if r.Text != "restart" {
+		t.Fatalf("plugins = %+v", r)
+	}
+	// Without the editor wired the action says so
+	r, _ = New(func() (string, error) { return "", nil }, nil).Act(ctx, view.Action{Name: "options"})
+	if r.Kind != view.KindNotify || !r.Error {
+		t.Fatalf("unwired = %+v", r)
+	}
+}

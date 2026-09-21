@@ -16,3 +16,6 @@ vim.g.snacks_animate = false
 -- LazyVim's default picker and explorer
 vim.g.lazyvim_picker = "snacks"
 vim.g.lazyvim_explorer = "snacks"
+
+-- Yours, last so they win
+pcall(require, "user.options")

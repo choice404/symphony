@@ -11,3 +11,6 @@ map("n", "<leader>yu", "<cmd>Symphony open discordweb<cr>", { desc = "Symphony d
 map("n", "<leader>yb", "<cmd>Symphony browser<cr>", { desc = "Symphony browser" })
 map("n", "<leader>ye", "<cmd>Symphony config<cr>", { desc = "Symphony config" })
 map("n", "<leader>yl", "<cmd>Symphony leave<cr>", { desc = "Symphony leave project" })
+
+-- Yours, last so they win
+pcall(require, "user.keymaps")
