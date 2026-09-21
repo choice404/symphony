@@ -47,11 +47,11 @@ dusk: contracts plugins
 	mkdir -p $(OUT)/contracts
 	cp $(MODULES) $(OUT)/contracts/
 
-# Copies whatever was last built into ~/.local, the binaries and the contract modules
+# Copies whatever was last built into ~/.local, the binaries and the contract modules, install replaces a running binary where cp would fail
 install:
 	mkdir -p $(BINDIR) $(CONTRACTDIR)
-	cp $(OUT)/symphony $(OUT)/symphonyd $(BINDIR)/
-	if [ -d $(OUT)/contracts ]; then cp $(OUT)/contracts/*.so $(CONTRACTDIR)/; fi
+	install -m 0755 $(OUT)/symphony $(OUT)/symphonyd $(BINDIR)/
+	if [ -d $(OUT)/contracts ]; then install -m 0644 $(OUT)/contracts/*.so $(CONTRACTDIR)/; fi
 
 # The plain suite plus the plugin tests
 test:

@@ -59,9 +59,13 @@ commands.home = function()
   require("symphony.view").open("home")
 end
 
--- Opens the mail view
-commands.mail = function()
-  require("symphony.view").open("mail")
+-- Opens mail, every account's inbox, or one account's folder such as :Symphony mail school sent
+commands.mail = function(args)
+  local name = "mail"
+  if args[1] then
+    name = "mail/" .. args[1] .. "/" .. (args[2] or "inbox")
+  end
+  require("symphony.view").open(name)
 end
 
 -- Runs one subcommand from the words after :Symphony

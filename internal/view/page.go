@@ -5,7 +5,7 @@ import "context"
 
 // Page is one screen of content the plugin turns into a buffer, it is built once and never changed
 type Page struct {
-	// The view name, the buffer is symphony://Name
+	// The page name, the buffer is symphony://Name, the part before the first slash is the view
 	Name string
 	// The title shown in the status area
 	Title string
@@ -13,10 +13,26 @@ type Page struct {
 	Lines []string
 	// The key of every line, same length as Lines, empty for a line with no item
 	Keys []string
+	// The key of the page as a whole, used by an action on a line with no key, such as reply on a message
+	Key string
 	// The zero based line the cursor starts on
 	Cursor int
 	// The filetype suffix, the buffer gets symphony-Filetype
 	Filetype string
+	// Whether the buffer stays writable, for a compose page
+	Editable bool
+}
+
+// Action is one request from the plugin against a view
+type Action struct {
+	// The action name such as open, refresh, reply, or send
+	Name string
+	// The key of the line the action was run on, or the page key when the line has none
+	Key string
+	// The page name the action was run from
+	Page string
+	// The buffer text for an action that submits it, such as send
+	Body string
 }
 
 // Kind is what the plugin does with a Response
@@ -41,16 +57,24 @@ type Response struct {
 	Text string
 	// Whether the message is an error
 	Error bool
+	// A buffer name to close after applying the response, such as a sent compose page
+	Close string
 }
 
 // View is one app as the plugin sees it
 type View interface {
 	// The name used in symphony://name and :Symphony open name
 	Name() string
-	// The page to show when the view is opened
+	// The page to show when the view is opened with no path
 	Render(ctx context.Context) (Page, error)
-	// The response to an action on a key, the key is empty on a line with no item
-	Act(ctx context.Context, action, key string) (Response, error)
+	// The response to an action
+	Act(ctx context.Context, a Action) (Response, error)
+}
+
+// Pager is a view that also renders pages under a path, such as mail/school/sent
+type Pager interface {
+	// The page for a path below the view name
+	RenderPath(ctx context.Context, path string) (Page, error)
 }
 
 /**
@@ -102,8 +126,10 @@ func (p Page) ToMap() map[string]interface{} {
 		"title":    p.Title,
 		"lines":    lines,
 		"keys":     keys,
+		"key":      p.Key,
 		"cursor":   p.Cursor,
 		"filetype": p.Filetype,
+		"editable": p.Editable,
 	}
 }
 
@@ -114,7 +140,7 @@ func (p Page) ToMap() map[string]interface{} {
  **/
 func (r Response) ToMap() map[string]interface{} {
 	// The base map
-	m := map[string]interface{}{"kind": string(r.Kind)}
+	m := map[string]interface{}{"kind": string(r.Kind), "close": r.Close}
 	// Add the page or the text by kind
 	switch r.Kind {
 	case KindPage:

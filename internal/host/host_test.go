@@ -24,11 +24,11 @@ func (fake) Render(context.Context) (view.Page, error) {
 	return view.Page{Name: "fake", Lines: []string{"one", "two"}, Keys: []string{"k1", "k2"}, Cursor: 1, Filetype: "fake"}, nil
 }
 
-func (fake) Act(_ context.Context, action, key string) (view.Response, error) {
-	if action == "open" {
-		return view.Show(view.Page{Name: "fake/" + key, Lines: []string{"opened " + key}, Filetype: "item"}), nil
+func (fake) Act(_ context.Context, a view.Action) (view.Response, error) {
+	if a.Name == "open" {
+		return view.Show(view.Page{Name: "fake/" + a.Key, Lines: []string{"opened " + a.Key + " from " + a.Page}, Filetype: "item"}), nil
 	}
-	return view.Notify("did " + action), nil
+	return view.Notify("did " + a.Name), nil
 }
 
 // serve starts a server on a scratch socket and returns the socket path and the server
@@ -79,7 +79,7 @@ func TestGoClientRenderAndAct(t *testing.T) {
 		t.Fatalf("page = %v", page)
 	}
 	var resp map[string]interface{}
-	if err := c.Call(ActionMethod, &resp, "fake", "refresh", ""); err != nil {
+	if err := c.Call(ActionMethod, &resp, "fake", "refresh", "", "fake", ""); err != nil {
 		t.Fatal(err)
 	}
 	if resp["kind"] != "notify" || resp["text"] != "did refresh" {
@@ -163,7 +163,7 @@ func TestNvimDialsDaemonAndShowsPage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lines) != 1 || lines[0] != "opened k2" {
+	if len(lines) != 1 || lines[0] != "opened k2 from fake" {
 		t.Fatalf("lines = %v", lines)
 	}
 }

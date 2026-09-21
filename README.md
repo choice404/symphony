@@ -88,7 +88,19 @@ limit = 500
 contracts = "~/.local/share/symphony/contracts"
 ```
 
-limit is how many of the newest messages the inbox shows across all accounts, 500 when unset, since a synced Gmail inbox can hold tens of thousands and nobody scrolls that far. With more than one account the inbox is one list across all of them newest first with an account column, and the header carries a tag per account, its contract state or its error, so one broken account never hides the others. Home shows the same tags. Each account is its own signed Mailbox contract, so the health you see is per account.
+limit is how many of the newest messages the inbox shows across all accounts, 500 when unset, since a synced Gmail inbox can hold tens of thousands and nobody scrolls that far. Home lists each account and, with more than one, an all accounts entry. Every account has its own inbox, sent, and spam pages, and the all pages merge every account newest first with an account column. A list header carries a tag per account, its contract state or its error, so one broken account never hides the others. Each account is its own signed Mailbox contract, so the health you see is per account.
+
+# Reading, writing, and cleaning up mail
+
+In a list <CR> opens the message, ]a and [a step through the accounts and back to all, ga jumps to the all accounts page, gi, gs, and gS switch to the inbox, the sent folder, and the spam review page for the same account, r renders the page again, and q goes back the way you came. :Symphony mail school sent opens a page by name.
+
+c opens a compose page for the account you are on, R replies to the message under the cursor or the one you are reading, with the address, the subject, the quoted body, and the thread headers filled in, and F forwards it. A compose page is an ordinary editable buffer, the headers sit above a marker line and the body below it, so you edit it like any file, then gs sends it through the daemon over SMTP and the buffer closes. Gmail files what you send into the sent folder itself and the daemon syncs it back a few seconds later. Sending needs the account to have auth set, the same login the sync uses.
+
+D moves the message under the cursor to the trash on the server and removes the local copy, which on Gmail is the Trash folder with its thirty day grace, so nothing is gone for good from symphony.
+
+The spam page asks Jev, TypeSafe's judgment model, whether each message in the inbox is spam, one probability per message, cached so a message is judged once. It lists the ones at or above one half, most likely first, with a mark column. d marks or unmarks the line, x trashes every marked message after you have looked them over, and nothing is ever trashed without a mark you put there. The key goes in TYPESAFE_API_KEY or in ~/.config/symphony/typesafe.key mode 600, and without one the page says so and everything else keeps working.
+
+
 
 # Mail accounts and MFA
 
@@ -154,6 +166,8 @@ auth = "oauth"
 sync = "10m"
 fetch = 2000
 ```
+
+user is also the From address on anything you send, and smtp overrides the SMTP host, smtp.gmail.com:465 when unset.
 
 Authorize once, which opens the browser where Okta runs, and prints the url in case the browser does not open:
 

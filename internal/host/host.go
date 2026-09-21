@@ -127,8 +127,8 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 			}
 			return p.ToMap(), nil
 		}),
-		ep.Register(ActionMethod, func(name, action, key string) (map[string]interface{}, error) {
-			r, err := s.reg.Act(ctx, name, action, key)
+		ep.Register(ActionMethod, func(name, action, key, page, body string) (map[string]interface{}, error) {
+			r, err := s.reg.Act(ctx, name, view.Action{Name: action, Key: key, Page: page, Body: body})
 			if err != nil {
 				return nil, err
 			}

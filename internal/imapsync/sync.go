@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/emersion/go-imap/v2"
@@ -16,16 +17,24 @@ import (
 // batch is how many new messages one fetch asks for
 const batch = 50
 
+// Folder is one server mailbox synced into one Maildir folder
+type Folder struct {
+	// The mailbox name on the server, INBOX or [Gmail]/Sent Mail
+	Mailbox string
+	// The Maildir folder root it lands in
+	Dir string
+}
+
 // Account is what one sync needs to know
 type Account struct {
 	// The account name, for log lines
 	Name string
-	// The Maildir root
-	Dir string
 	// The IMAP host with its port
 	Host string
-	// How many of the newest messages to keep
+	// How many of the newest messages to keep per folder
 	Keep int
+	// The folders to sync
+	Folders []Folder
 }
 
 // Result counts what one sync did
@@ -36,13 +45,13 @@ type Result struct {
 	Removed int
 	// Files renamed for a flag change
 	Updated int
-	// Messages in the window after the sync
+	// Messages in the windows after the sync
 	Total int
 }
 
 /**
  * Sync
- * Pulls the newest Keep messages of INBOX into the Maildir, drops local copies that fell out of the window, and renames files whose flags changed
+ * Pulls the newest Keep messages of every folder into its Maildir, drops local copies that fell out of the window, and renames files whose flags changed
  * @param ctx {context.Context} - the context
  * @param a {Account} - the account
  * @param auth {sasl.Client} - the login, OAUTHBEARER or PLAIN
@@ -50,35 +59,79 @@ type Result struct {
  * @return Result, error
  **/
 func Sync(ctx context.Context, a Account, auth sasl.Client, logf func(string, ...interface{})) (Result, error) {
-	// The Maildir and its state
+	// Connect and log in once for every folder
 	var res Result
-	if err := ensureMaildir(a.Dir); err != nil {
-		return res, err
-	}
-	st, err := loadState(a.Dir)
+	c, err := connect(a, auth)
 	if err != nil {
 		return res, err
-	}
-	// Connect and log in
-	c, err := imapclient.DialTLS(a.Host, nil)
-	if err != nil {
-		return res, fmt.Errorf("dial %s: %w", a.Host, err)
 	}
 	defer func() { _ = c.Close() }()
-	if err := c.Authenticate(auth); err != nil {
-		return res, fmt.Errorf("login %s: %w", a.Name, err)
-	}
 	defer func() { _ = c.Logout().Wait() }()
-	// Open the inbox read only, this sync never changes the server
-	sel, err := c.Select("INBOX", &imap.SelectOptions{ReadOnly: true}).Wait()
+	// Every folder in turn
+	for _, f := range a.Folders {
+		r, err := syncFolder(ctx, c, a, f, logf)
+		res.Added += r.Added
+		res.Removed += r.Removed
+		res.Updated += r.Updated
+		res.Total += r.Total
+		if err != nil {
+			return res, fmt.Errorf("%s: %w", f.Mailbox, err)
+		}
+	}
+	return res, nil
+}
+
+/**
+ * connect
+ * Dials the host over TLS and logs in
+ * @param a {Account} - the account
+ * @param auth {sasl.Client} - the login
+ * @return *imapclient.Client, error
+ **/
+func connect(a Account, auth sasl.Client) (*imapclient.Client, error) {
+	// Dial
+	c, err := imapclient.DialTLS(a.Host, nil)
+	if err != nil {
+		return nil, fmt.Errorf("dial %s: %w", a.Host, err)
+	}
+	// Log in
+	if err := c.Authenticate(auth); err != nil {
+		_ = c.Close()
+		return nil, fmt.Errorf("login %s: %w", a.Name, err)
+	}
+	return c, nil
+}
+
+/**
+ * syncFolder
+ * Syncs one mailbox into one Maildir folder over a logged in client
+ * @param ctx {context.Context} - the context
+ * @param c {*imapclient.Client} - the client
+ * @param a {Account} - the account
+ * @param f {Folder} - the folder
+ * @param logf {func(string, ...interface{})} - where log lines go
+ * @return Result, error
+ **/
+func syncFolder(ctx context.Context, c *imapclient.Client, a Account, f Folder, logf func(string, ...interface{})) (Result, error) {
+	// The Maildir and its state
+	var res Result
+	if err := ensureMaildir(f.Dir); err != nil {
+		return res, err
+	}
+	st, err := loadState(f.Dir)
+	if err != nil {
+		return res, err
+	}
+	// Open the mailbox read only, this sync never changes the server
+	sel, err := c.Select(f.Mailbox, &imap.SelectOptions{ReadOnly: true}).Wait()
 	if err != nil {
 		return res, fmt.Errorf("select: %w", err)
 	}
 	// A new UIDVALIDITY means every local file belongs to a mailbox that is gone
 	if st.UIDValidity != 0 && st.UIDValidity != sel.UIDValidity {
-		logf("%s: uidvalidity changed, starting over", a.Name)
+		logf("%s %s: uidvalidity changed, starting over", a.Name, f.Mailbox)
 		for uid, rel := range st.Files {
-			_ = os.Remove(filepath.Join(a.Dir, rel))
+			_ = os.Remove(filepath.Join(f.Dir, rel))
 			delete(st.Files, uid)
 			res.Removed++
 		}
@@ -96,7 +149,7 @@ func Sync(ctx context.Context, a Account, auth sasl.Client, logf func(string, ..
 	}
 	for uid, rel := range st.Files {
 		if !inWindow[uid] {
-			_ = os.Remove(filepath.Join(a.Dir, rel))
+			_ = os.Remove(filepath.Join(f.Dir, rel))
 			delete(st.Files, uid)
 			res.Removed++
 		}
@@ -113,39 +166,107 @@ func Sync(ctx context.Context, a Account, auth sasl.Client, logf func(string, ..
 	}
 	// Flags of the known ones
 	if len(known) > 0 {
-		n, err := updateFlags(c, a.Dir, &st, known)
+		n, err := updateFlags(c, f.Dir, &st, known)
 		if err != nil {
-			_ = saveState(a.Dir, st)
+			_ = saveState(f.Dir, st)
 			return res, err
 		}
 		res.Updated = n
 	}
-	// The new ones, newest first so a cut off sync still leaves the top of the inbox
+	// The new ones, newest first so a cut off sync still leaves the top of the folder
 	sort.Slice(fresh, func(i, j int) bool { return fresh[i] > fresh[j] })
 	host := hostName()
 	for start := 0; start < len(fresh); start += batch {
 		// Stop cleanly when asked
 		if err := ctx.Err(); err != nil {
-			_ = saveState(a.Dir, st)
+			_ = saveState(f.Dir, st)
 			return res, err
 		}
 		end := start + batch
 		if end > len(fresh) {
 			end = len(fresh)
 		}
-		n, err := fetchNew(c, a.Dir, &st, fresh[start:end], host)
+		n, err := fetchNew(c, f.Dir, &st, fresh[start:end], host)
 		res.Added += n
 		if err != nil {
-			_ = saveState(a.Dir, st)
+			_ = saveState(f.Dir, st)
 			return res, err
 		}
-		if err := saveState(a.Dir, st); err != nil {
+		if err := saveState(f.Dir, st); err != nil {
 			return res, err
 		}
 	}
 	// Done
 	res.Total = len(st.Files)
-	return res, saveState(a.Dir, st)
+	return res, saveState(f.Dir, st)
+}
+
+/**
+ * Trash
+ * Moves one message to the trash mailbox on the server and removes its local file
+ * @param ctx {context.Context} - the context
+ * @param a {Account} - the account
+ * @param auth {sasl.Client} - the login
+ * @param f {Folder} - the folder the message sits in
+ * @param rel {string} - the local file relative to the folder root, such as cur/123.U7.host:2,S
+ * @param trash {string} - the trash mailbox name
+ * @return error
+ **/
+func Trash(ctx context.Context, a Account, auth sasl.Client, f Folder, rel, trash string) error {
+	// The uid behind the file
+	st, err := loadState(f.Dir)
+	if err != nil {
+		return err
+	}
+	uid, ok := uidOf(st, rel)
+	if !ok {
+		return fmt.Errorf("%s is not a synced message, it may have come from another sync tool", rel)
+	}
+	// Connect
+	c, err := connect(a, auth)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Close() }()
+	defer func() { _ = c.Logout().Wait() }()
+	// Open the mailbox for writing
+	if _, err := c.Select(f.Mailbox, nil).Wait(); err != nil {
+		return fmt.Errorf("select: %w", err)
+	}
+	// Copy to the trash, then flag and expunge the original
+	set := imap.UIDSetNum(imap.UID(uid))
+	if _, err := c.Copy(set, trash).Wait(); err != nil {
+		return fmt.Errorf("copy to %s: %w", trash, err)
+	}
+	store := &imap.StoreFlags{Op: imap.StoreFlagsAdd, Flags: []imap.Flag{imap.FlagDeleted}, Silent: true}
+	if err := c.Store(set, store, nil).Close(); err != nil {
+		return fmt.Errorf("flag deleted: %w", err)
+	}
+	if err := c.UIDExpunge(set).Close(); err != nil {
+		return fmt.Errorf("expunge: %w", err)
+	}
+	// Drop the local copy
+	_ = os.Remove(filepath.Join(f.Dir, rel))
+	delete(st.Files, uid)
+	return saveState(f.Dir, st)
+}
+
+/**
+ * uidOf
+ * Finds the uid a local file belongs to
+ * @param st {State} - the state
+ * @param rel {string} - the file relative to the folder root
+ * @return uint32, bool
+ **/
+func uidOf(st State, rel string) (uint32, bool) {
+	// The flags may have changed since the state was written, compare without them
+	want := strings.SplitN(rel, ":2,", 2)[0]
+	for uid, have := range st.Files {
+		if strings.SplitN(have, ":2,", 2)[0] == want {
+			return uid, true
+		}
+	}
+	return 0, false
 }
 
 /**
@@ -261,11 +382,12 @@ func fetchNew(c *imapclient.Client, dir string, st *State, uids []imap.UID, host
  * Builds the OAUTHBEARER login Gmail takes for an access token
  * @param user {string} - the address
  * @param token {string} - the access token
- * @param host {string} - the IMAP host without its port
+ * @param host {string} - the host without its port
+ * @param port {int} - the port
  * @return sasl.Client
  **/
-func OAuthBearer(user, token, host string) sasl.Client {
-	return sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{Username: user, Token: token, Host: host, Port: 993})
+func OAuthBearer(user, token, host string, port int) sasl.Client {
+	return sasl.NewOAuthBearerClient(&sasl.OAuthBearerOptions{Username: user, Token: token, Host: host, Port: port})
 }
 
 /**

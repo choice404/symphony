@@ -47,13 +47,13 @@ func TestDuskClassifyLabels(t *testing.T) {
 
 func TestDuskLabelsInInbox(t *testing.T) {
 	rt := duskRuntime(t)
-	c := NewContract(rt, Fixed(fixture(t)), true)
-	p, err := c.Render(context.Background())
+	m := New(Fixed(fixture(t)), NewContract(rt, true), Services{})
+	p, err := m.RenderPath(context.Background(), "mail/inbox")
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Every message line carries a label column from the plugin
-	for _, line := range p.Lines[2:] {
+	for _, line := range p.Lines[3:] {
 		if !strings.Contains(line, "personal") {
 			t.Fatalf("line without label: %q", line)
 		}

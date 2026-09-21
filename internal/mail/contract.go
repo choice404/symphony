@@ -5,13 +5,11 @@ package mail
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/choice404/symphony/internal/geas"
-	"github.com/choice404/symphony/internal/view"
 )
 
 // ContractName is the contract the module declares
@@ -37,20 +35,16 @@ type slot struct {
 	lists int
 }
 
-// Contract shows mail through one signed Mailbox contract per account, each runtime state is that account's health
+// Contract is the backend that reads mail through one signed Mailbox contract per account, each runtime state is that account's health
 type Contract struct {
 	// The runtime the module is loaded in
 	rt *geas.Runtime
-	// Returns the accounts as configured right now
-	src Source
-	// Whether classify is bound, so every listed message gets a label
+	// Whether classify is bound to a real body, so labels are worth asking for
 	labels bool
-	// Guards the slots and the last list
+	// Guards the slots
 	mu sync.Mutex
 	// The signed instance per account name
 	slots map[string]*slot
-	// The last merged list, replaced whole on every render
-	last []Message
 }
 
 /**
@@ -60,13 +54,14 @@ type Contract struct {
  * @return error
  **/
 func Bind(rt *geas.Runtime) error {
-	// list scans the maildir the vow names
-	err := rt.Bind(ContractName+".list", func(inst *geas.Instance, _ []geas.Value) (geas.Value, error) {
+	// list scans a folder of the maildir the vow names
+	err := rt.Bind(ContractName+".list", func(inst *geas.Instance, args []geas.Value) (geas.Value, error) {
 		dir, _ := inst.Vow("maildir")
 		root, _ := dir.(string)
-		msgs, err := Scan(root)
+		folder, _ := args[0].(string)
+		msgs, err := Scan(FolderDir(root, folder))
 		if err != nil {
-			return geas.Result{Value: geas.Sum{Tag: errMissing, Fields: []geas.Value{root}}}, nil
+			return geas.Result{Value: geas.Sum{Tag: errMissing, Fields: []geas.Value{FolderDir(root, folder)}}}, nil
 		}
 		return geas.Result{Ok: true, Value: encodeMessages(msgs)}, nil
 	})
@@ -93,212 +88,61 @@ func Bind(rt *geas.Runtime) error {
 
 /**
  * NewContract
- * Builds the contract backed mail view
+ * Builds the contract backend
  * @param rt {*geas.Runtime} - the runtime with the module loaded and the pledges bound
- * @param src {Source} - returns the accounts, called on every render so a config edit re-signs without a restart
- * @param labels {bool} - whether classify is bound and every message should carry a label
+ * @param labels {bool} - whether classify has a real body
  * @return *Contract
  **/
-func NewContract(rt *geas.Runtime, src Source, labels bool) *Contract {
-	return &Contract{rt: rt, src: src, labels: labels, slots: map[string]*slot{}}
+func NewContract(rt *geas.Runtime, labels bool) *Contract {
+	return &Contract{rt: rt, labels: labels, slots: map[string]*slot{}}
 }
 
 /**
- * Name
- * Returns mail
- * @return string
- **/
-func (c *Contract) Name() string {
-	return ViewName
-}
-
-/**
- * Summary
- * Returns the state and counts for the home page, one account as before and several as a tag each
+ * List
+ * Signs the account when needed, runs configured once, then fulfills list for the folder, the tag is the runtime state
  * @param ctx {context.Context} - the context
- * @return string
+ * @param a {Account} - the account
+ * @param folder {string} - the folder
+ * @return []Message, string, error
  **/
-func (c *Contract) Summary(ctx context.Context) string {
-	// List everything
-	msgs, states, errs, single := c.list()
-	// A lone account reads as its state and the counts, or its error alone
-	if single {
-		if len(errs) == 1 {
-			for _, e := range errs {
-				return e
-			}
-		}
-		for _, st := range states {
-			return fmt.Sprintf("%s, %d messages, %d unread", st, len(msgs), Unread(msgs))
-		}
-	}
-	// Several accounts read as the counts then a tag per account
-	tags := map[string]string{}
-	for name, st := range states {
-		tags[name] = st
-	}
-	for name, e := range errs {
-		tags[name] = e
-	}
-	if len(tags) == 0 {
-		return "not configured"
-	}
-	return fmt.Sprintf("%d messages, %d unread", len(msgs), Unread(msgs)) + notes(tags)
-}
-
-/**
- * Render
- * Lists every account's inbox through its contract
- * @param ctx {context.Context} - the context
- * @return view.Page, error
- **/
-func (c *Contract) Render(ctx context.Context) (view.Page, error) {
-	// List everything
-	msgs, states, errs, single := c.list()
-	// Nothing configured at all
-	if len(states) == 0 && len(errs) == 0 {
-		return unconfiguredPage, nil
-	}
-	// A lone broken account gets the error as the page
-	if single && len(errs) == 1 {
-		for _, e := range errs {
-			return view.Page{
-				Name:     ViewName,
-				Title:    "mail",
-				Lines:    []string{"mail " + e, "", "fix the config and press r"},
-				Keys:     []string{"", "", ""},
-				Filetype: "mail",
-			}, nil
-		}
-	}
-	// The header carries the counts then a tag per account, its state or its error
-	tags := map[string]string{}
-	for name, st := range states {
-		tags[name] = st
-	}
-	for name, e := range errs {
-		tags[name] = e
-	}
-	return listPage(countHeader(msgs)+notes(tags), msgs, !single), nil
-}
-
-/**
- * Act
- * Opens a message through its account's contract or refreshes the list
- * @param ctx {context.Context} - the context
- * @param action {string} - open or refresh
- * @param key {string} - the message key
- * @return view.Response, error
- **/
-func (c *Contract) Act(ctx context.Context, action, key string) (view.Response, error) {
-	// Dispatch on the action
-	switch action {
-	case "refresh":
-		// Drop every instance so a fixed config gets a fresh sign
-		c.resign()
-		p, err := c.Render(ctx)
-		if err != nil {
-			return view.Fail(err.Error()), nil
-		}
-		return view.Show(p), nil
-	case "open":
-		return c.open(key)
-	}
-	return view.Fail("mail: unknown action " + action), nil
-}
-
-/**
- * open
- * Fulfills open on the account's contract for one message
- * @param key {string} - the message key
- * @return view.Response, error
- **/
-func (c *Contract) open(key string) (view.Response, error) {
-	// Nothing to open on a header line
-	if key == "" {
-		return view.Response{Kind: view.KindNone}, nil
-	}
+func (c *Contract) List(ctx context.Context, a Account, folder string) ([]Message, string, error) {
 	c.mu.Lock()
-	m, ok := findKey(c.last, key)
-	s := c.slots[m.Account]
-	c.mu.Unlock()
-	if !ok || s == nil {
-		return view.Fail("mail: message not in the current list, refresh"), nil
-	}
-	// Fulfill
-	v, err := s.inst.Fulfill("open", m.Path)
+	defer c.mu.Unlock()
+	// The instance
+	s, err := c.slotFor(a)
 	if err != nil {
-		return view.Fail("mail: " + err.Error()), nil
+		return nil, "", err
+	}
+	// A broken contract stays broken until refresh re-signs
+	if s.inst.State() == geas.Broken {
+		return nil, "", fmt.Errorf("broken: %s", firstError(s.inst))
+	}
+	// Fulfill list
+	s.lists++
+	v, err := s.inst.Fulfill("list", folder)
+	if err != nil {
+		return nil, "", fmt.Errorf("list: %w", err)
 	}
 	r, _ := v.(geas.Result)
 	if !r.Ok {
-		return view.Fail("mail " + describeError(r.Value)), nil
+		return nil, "", fmt.Errorf("%s: %s", strings.ToLower(s.inst.State().String()), describeError(r.Value))
 	}
-	rec, _ := r.Value.(geas.Record)
-	o := decodeOpened(rec)
-	o.Account = m.Account
-	return view.Show(messagePage(o)), nil
+	// Tag
+	msgs := decodeMessages(r.Value)
+	for i := range msgs {
+		msgs[i].Account = a.Name
+		msgs[i].Folder = folder
+	}
+	return msgs, strings.ToLower(s.inst.State().String()), nil
 }
 
 /**
- * list
- * Signs each account on first use or after its maildir changed, fulfills list on each, and merges the results newest first
- * @return []Message, map[string]string, map[string]string, bool
- **/
-func (c *Contract) list() (msgs []Message, states, errs map[string]string, single bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	// The accounts as configured right now, an empty maildir still gets an instance so the contract reports not configured
-	set := c.src()
-	accs := set.Accounts
-	single = len(accs) <= 1
-	states = map[string]string{}
-	errs = map[string]string{}
-	// Drop instances of accounts that are gone
-	seen := map[string]bool{}
-	for _, a := range accs {
-		seen[a.Name] = true
-	}
-	for name, s := range c.slots {
-		if !seen[name] {
-			_ = s.inst.Break()
-			delete(c.slots, name)
-		}
-	}
-	// Loop over every account
-	all := make([]Message, 0, 64)
-	for _, a := range accs {
-		got, err := c.listOne(a)
-		if err != nil {
-			errs[a.Name] = err.Error()
-			continue
-		}
-		states[a.Name] = strings.ToLower(c.slots[a.Name].inst.State().String())
-		all = append(all, got...)
-	}
-	// Newest first across accounts, cut to the limit, then labeled, so only shown messages cost a classify
-	sort.SliceStable(all, func(i, j int) bool {
-		if !all[i].Date.Equal(all[j].Date) {
-			return all[i].Date.After(all[j].Date)
-		}
-		return all[i].Path < all[j].Path
-	})
-	all = newest(all, set.Limit)
-	if c.labels {
-		all = c.classify(all)
-	}
-	// Keep the list for open
-	c.last = all
-	return all, states, errs, single
-}
-
-/**
- * listOne
- * Signs one account when needed, runs configured once, then fulfills list, tagging every message with the account
+ * slotFor
+ * Returns the account's instance, signing a fresh one when there is none, the maildir changed, or the old one served enough lists
  * @param a {Account} - the account
- * @return []Message, error
+ * @return *slot, error
  **/
-func (c *Contract) listOne(a Account) ([]Message, error) {
+func (c *Contract) slotFor(a Account) (*slot, error) {
 	// A changed maildir or a well used instance breaks the old one, the break is what frees every listed message
 	s := c.slots[a.Name]
 	if s != nil && (s.dir != a.Dir || s.lists >= listsPerInstance) {
@@ -306,64 +150,102 @@ func (c *Contract) listOne(a Account) ([]Message, error) {
 		delete(c.slots, a.Name)
 		s = nil
 	}
-	// Sign once and run the configured check, which breaks the contract when the vow is empty
-	if s == nil {
-		inst, err := c.rt.Sign(ContractName, map[string]geas.Value{"maildir": a.Dir})
-		if err != nil {
-			return nil, fmt.Errorf("sign: %w", err)
-		}
-		s = &slot{inst: inst, dir: a.Dir}
-		c.slots[a.Name] = s
-		if v, err := inst.Fulfill("configured"); err == nil {
-			if r, _ := v.(geas.Result); !r.Ok {
-				return nil, fmt.Errorf("%s: %s", strings.ToLower(inst.State().String()), describeError(r.Value))
-			}
-		}
+	if s != nil {
+		return s, nil
 	}
-	// A broken contract stays broken until refresh re-signs
-	if s.inst.State() == geas.Broken {
-		return nil, fmt.Errorf("broken: %s", firstError(s.inst))
-	}
-	// Fulfill list
-	s.lists++
-	v, err := s.inst.Fulfill("list")
+	// Sign and run the configured check, which breaks the contract when the vow is empty
+	inst, err := c.rt.Sign(ContractName, map[string]geas.Value{"maildir": a.Dir})
 	if err != nil {
-		return nil, fmt.Errorf("list: %w", err)
+		return nil, fmt.Errorf("sign: %w", err)
 	}
-	r, _ := v.(geas.Result)
-	if !r.Ok {
-		return nil, fmt.Errorf("%s: %s", strings.ToLower(s.inst.State().String()), describeError(r.Value))
+	s = &slot{inst: inst, dir: a.Dir}
+	c.slots[a.Name] = s
+	if v, err := inst.Fulfill("configured"); err == nil {
+		if r, _ := v.(geas.Result); !r.Ok {
+			return nil, fmt.Errorf("%s: %s", strings.ToLower(inst.State().String()), describeError(r.Value))
+		}
 	}
-	// Tag
-	msgs := decodeMessages(r.Value)
-	for i := range msgs {
-		msgs[i].Account = a.Name
-	}
-	return msgs, nil
+	return s, nil
 }
 
 /**
- * classify
- * Fulfills classify for every message on its account's instance and returns a new list carrying the labels
+ * Open
+ * Fulfills open on the account's instance
+ * @param ctx {context.Context} - the context
+ * @param a {Account} - the account
+ * @param m {Message} - the message
+ * @return Opened, error
+ **/
+func (c *Contract) Open(ctx context.Context, a Account, m Message) (Opened, error) {
+	c.mu.Lock()
+	s := c.slots[a.Name]
+	c.mu.Unlock()
+	if s == nil {
+		return Opened{}, fmt.Errorf("mail: %s is not signed, refresh", a.Name)
+	}
+	// Fulfill
+	v, err := s.inst.Fulfill("open", m.Path)
+	if err != nil {
+		return Opened{}, fmt.Errorf("mail: %w", err)
+	}
+	r, _ := v.(geas.Result)
+	if !r.Ok {
+		return Opened{}, fmt.Errorf("mail %s", describeError(r.Value))
+	}
+	rec, _ := r.Value.(geas.Record)
+	o := decodeOpened(rec)
+	o.Account = m.Account
+	o.Folder = m.Folder
+	o.Path = m.Path
+	o.MessageID = m.MessageID
+	return o, nil
+}
+
+/**
+ * Label
+ * Fulfills classify for every message on the account's instance and returns a new list carrying the labels
+ * @param ctx {context.Context} - the context
+ * @param a {Account} - the account
  * @param msgs {[]Message} - the messages
  * @return []Message
  **/
-func (c *Contract) classify(msgs []Message) []Message {
+func (c *Contract) Label(ctx context.Context, a Account, msgs []Message) []Message {
+	// Nothing to ask without a real body
+	if !c.labels {
+		return msgs
+	}
+	c.mu.Lock()
+	s := c.slots[a.Name]
+	c.mu.Unlock()
+	if s == nil {
+		return msgs
+	}
 	// The labeled copies
 	out := make([]Message, 0, len(msgs))
 	for _, m := range msgs {
-		// Ask the plugin through the account's instance
-		if s := c.slots[m.Account]; s != nil {
-			v, err := s.inst.Fulfill("classify", m.From, m.Subject)
-			if err == nil {
-				if r, ok := v.(geas.Result); ok && r.Ok {
-					m.Label = str(r.Value)
-				}
+		v, err := s.inst.Fulfill("classify", m.From, m.Subject)
+		if err == nil {
+			if r, ok := v.(geas.Result); ok && r.Ok {
+				m.Label = str(r.Value)
 			}
 		}
 		out = append(out, m)
 	}
 	return out
+}
+
+/**
+ * Refresh
+ * Breaks every instance so the next list signs fresh ones
+ * @return void
+ **/
+func (c *Contract) Refresh() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for name, s := range c.slots {
+		_ = s.inst.Break()
+		delete(c.slots, name)
+	}
 }
 
 /**
@@ -379,21 +261,6 @@ func firstError(inst *geas.Instance) string {
 		return "no error recorded"
 	}
 	return errs[0].Pledge + " " + describeError(errs[0].Err)
-}
-
-/**
- * resign
- * Breaks every instance so the next list signs fresh ones
- * @return void
- **/
-func (c *Contract) resign() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for name, s := range c.slots {
-		_ = s.inst.Break()
-		delete(c.slots, name)
-	}
-	c.last = nil
 }
 
 /**
@@ -436,7 +303,7 @@ func encodeMessages(msgs []Message) geas.Value {
 	items := make([]geas.Value, 0, len(msgs))
 	for _, m := range msgs {
 		items = append(items, geas.Record{Fields: []geas.Value{
-			m.ID, m.Path, m.From, m.Subject, m.Date.Unix(), m.Seen, m.Flagged, m.Replied,
+			m.ID, m.Path, m.From, m.Subject, m.Date.Unix(), m.Seen, m.Flagged, m.Replied, m.MessageID,
 		}})
 	}
 	return geas.List{Elem: geas.TagRecord, Items: items}
@@ -454,19 +321,20 @@ func decodeMessages(v geas.Value) []Message {
 	out := make([]Message, 0, len(list.Items))
 	for _, it := range list.Items {
 		rec, ok := it.(geas.Record)
-		if !ok || len(rec.Fields) < 8 {
+		if !ok || len(rec.Fields) < 9 {
 			continue
 		}
 		f := rec.Fields
 		out = append(out, Message{
-			ID:      str(f[0]),
-			Path:    str(f[1]),
-			From:    str(f[2]),
-			Subject: str(f[3]),
-			Date:    unix(f[4]),
-			Seen:    boolean(f[5]),
-			Flagged: boolean(f[6]),
-			Replied: boolean(f[7]),
+			ID:        str(f[0]),
+			Path:      str(f[1]),
+			From:      str(f[2]),
+			Subject:   str(f[3]),
+			Date:      unix(f[4]),
+			Seen:      boolean(f[5]),
+			Flagged:   boolean(f[6]),
+			Replied:   boolean(f[7]),
+			MessageID: str(f[8]),
 		})
 	}
 	return out
@@ -479,7 +347,7 @@ func decodeMessages(v geas.Value) []Message {
  * @return geas.Value
  **/
 func encodeOpened(o Opened) geas.Value {
-	return geas.Record{Fields: []geas.Value{o.ID, o.From, o.To, o.Subject, o.Date.Unix(), o.Body}}
+	return geas.Record{Fields: []geas.Value{o.ID, o.From, o.To, o.Subject, o.Date.Unix(), o.Body, o.ReplyTo, o.References}}
 }
 
 /**
@@ -490,11 +358,13 @@ func encodeOpened(o Opened) geas.Value {
  **/
 func decodeOpened(rec geas.Record) Opened {
 	// Pad short records so indexing is safe
-	f := append(rec.Fields, make([]geas.Value, 6)...)
+	f := append(rec.Fields, make([]geas.Value, 8)...)
 	return Opened{
-		Message: Message{ID: str(f[0]), From: str(f[1]), Subject: str(f[3]), Date: unix(f[4])},
-		To:      str(f[2]),
-		Body:    str(f[5]),
+		Message:    Message{ID: str(f[0]), From: str(f[1]), Subject: str(f[3]), Date: unix(f[4])},
+		To:         str(f[2]),
+		Body:       str(f[5]),
+		ReplyTo:    str(f[6]),
+		References: str(f[7]),
 	}
 }
 

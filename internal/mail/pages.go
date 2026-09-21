@@ -15,6 +15,12 @@ const listWidthFrom = 24
 // listWidthAccount is how many columns the account name gets in the list
 const listWidthAccount = 8
 
+// listHint is the second line of every list, the keys that move around
+const listHint = "  <CR> open  c compose  R reply  F forward  D trash  ]a [a account  ga all  gi inbox  gs sent  gS spam  r refresh"
+
+// messageHint is the footer of a message page
+const messageHint = "  R reply  F forward  D trash  q back"
+
 // unconfiguredPage is what the mail view shows before any account is set
 var unconfiguredPage = view.Page{
 	Name:  ViewName,
@@ -30,34 +36,74 @@ var unconfiguredPage = view.Page{
 }
 
 /**
+ * pageName
+ * Builds the page name of a list
+ * @param account {string} - the account name or all
+ * @param folder {string} - the folder
+ * @return string
+ **/
+func pageName(account, folder string) string {
+	return ViewName + "/" + account + "/" + folder
+}
+
+/**
  * listPage
- * Builds the inbox page from messages newest first, with a header line before the list
- * @param header {string} - the first line, the counts or the health
+ * Builds a list page, a header, the hint line, then one line per message
+ * @param account {string} - the account name or all
+ * @param folder {string} - the folder
+ * @param header {string} - the first line, the counts and the health tags
  * @param msgs {[]Message} - the messages
  * @param multi {bool} - whether to show the account column
  * @return view.Page
  **/
-func listPage(header string, msgs []Message, multi bool) view.Page {
-	// The header
-	lines := []string{header, ""}
-	keys := []string{"", ""}
+func listPage(account, folder, header string, msgs []Message, multi bool) view.Page {
+	// The header and the hint
+	lines := []string{header, listHint, ""}
+	keys := []string{"", "", ""}
 	// Loop over every message
 	for _, m := range msgs {
 		lines = append(lines, listLine(m, multi))
 		keys = append(keys, m.Key())
 	}
 	// Return the page with the cursor on the first message
-	return view.Page{Name: ViewName, Title: "mail", Lines: lines, Keys: keys, Cursor: 2, Filetype: "mail"}
+	return view.Page{
+		Name:     pageName(account, folder),
+		Title:    account + " " + folder,
+		Lines:    lines,
+		Keys:     keys,
+		Cursor:   3,
+		Filetype: "mail",
+	}
+}
+
+/**
+ * errorPage
+ * Builds a list page whose content is one error, for a lone account that cannot be read
+ * @param account {string} - the account name
+ * @param folder {string} - the folder
+ * @param text {string} - the error
+ * @return view.Page
+ **/
+func errorPage(account, folder, text string) view.Page {
+	return view.Page{
+		Name:     pageName(account, folder),
+		Title:    account + " " + folder,
+		Lines:    []string{"mail " + text, listHint, "", "fix the config and press r"},
+		Keys:     []string{"", "", "", ""},
+		Filetype: "mail",
+	}
 }
 
 /**
  * countHeader
- * Formats the inbox counts
+ * Formats a list header, the account, the folder, and the counts
+ * @param account {string} - the account name or all
+ * @param folder {string} - the folder
  * @param msgs {[]Message} - the messages shown
  * @return string
  **/
-func countHeader(msgs []Message) string {
-	return fmt.Sprintf("inbox  %d messages, %d unread", len(msgs), Unread(msgs))
+func countHeader(account, folder string, msgs []Message) string {
+	return fmt.Sprintf("%s %s  %d messages, %d unread", account, folder, len(msgs), Unread(msgs))
 }
 
 /**
@@ -88,7 +134,7 @@ func notes(byName map[string]string) string {
 
 /**
  * messagePage
- * Builds the page for one opened message, headers then body
+ * Builds the page for one opened message, headers then body then the hint, keyed as a whole by the message
  * @param o {Opened} - the message
  * @return view.Page
  **/
@@ -101,14 +147,16 @@ func messagePage(o Opened) view.Page {
 		"Subject: " + o.Subject,
 		"",
 	}
-	// The body lines
+	// The body lines and the hint
 	lines = append(lines, strings.Split(o.Body, "\n")...)
-	// Return the page, no keys since nothing on it opens
+	lines = append(lines, "", messageHint)
+	// Return the page, no line keys since the page as a whole is the message
 	return view.Page{
 		Name:     ViewName + "/" + o.Key(),
 		Title:    o.Subject,
 		Lines:    lines,
 		Keys:     make([]string, len(lines)),
+		Key:      o.Key(),
 		Filetype: "message",
 	}
 }

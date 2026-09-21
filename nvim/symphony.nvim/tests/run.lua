@@ -179,9 +179,9 @@ tests.open_unknown_notifies = function()
   assert_true(seen.msg:find("ghost", 1, true) ~= nil, "names the view")
 end
 
--- An action sends the view, the action, and the key of the cursor line, then applies the page that comes back
+-- An action sends the view, the action, the key of the cursor line, the page, and an empty body, then applies the page that comes back
 tests.act_sends_key_and_applies_page = function()
-  local mail_page = { name = "mail", lines = { "inbox" }, keys = { "" }, filetype = "mail" }
+  local mail_page = { name = "mail/all/inbox", lines = { "inbox" }, keys = { "" }, filetype = "mail" }
   local calls, restore = fake_host({ home = home_page }, { open = { kind = "page", page = mail_page } })
   local view = require("symphony.view")
   view.open("home")
@@ -193,7 +193,42 @@ tests.act_sends_key_and_applies_page = function()
   assert_eq(c[1], "home", "view")
   assert_eq(c[2], "open", "action")
   assert_eq(c[3], "mail", "key")
+  assert_eq(c[4], "home", "page")
+  assert_eq(c[5], "", "body")
   assert_eq(vim.b[0].symphony_view, "mail", "mail page shown")
+  assert_eq(vim.b[0].symphony_page, "mail/all/inbox", "page var")
+end
+
+-- An explicit key wins over the line, and a line without a key falls back to the page key
+tests.act_key_fallbacks = function()
+  local calls, restore = fake_host({}, {})
+  local view = require("symphony.view")
+  view.show({ name = "mail/p/inbox/1", lines = { "From: x", "body" }, keys = { "", "" }, key = "p/inbox/1", filetype = "message" })
+  view.act("reply")
+  view.act("folder", "sent")
+  restore()
+  assert_eq(calls[1][3], "p/inbox/1", "page key used")
+  assert_eq(calls[2][2], "folder", "action")
+  assert_eq(calls[2][3], "sent", "explicit key used")
+end
+
+-- A send carries the whole buffer as the body, and the close in the reply removes the compose buffer
+tests.send_carries_body_and_closes = function()
+  local calls, restore = fake_host({ home = home_page }, { send = { kind = "notify", text = "sent", close = "mail/p/compose/1" } })
+  local view = require("symphony.view")
+  view.open("home")
+  local buf = view.show({ name = "mail/p/compose/1", lines = { "To: a@b.c", "---", "hi" }, keys = { "", "", "" }, key = "1", filetype = "compose", editable = true })
+  assert_eq(vim.bo[buf].modifiable, true, "compose is editable")
+  vim.api.nvim_buf_set_lines(buf, 2, 3, false, { "hello there" })
+  local old = vim.notify
+  vim.notify = function() end
+  view.act("send")
+  vim.notify = old
+  restore()
+  assert_eq(calls[2][2], "send", "action")
+  assert_eq(calls[2][5], "To: a@b.c\n---\nhello there", "body")
+  assert_eq(vim.api.nvim_buf_is_valid(buf), false, "compose buffer closed")
+  assert_eq(vim.b[0].symphony_view, "home", "back home after close")
 end
 
 -- A notify response goes through vim.notify with the right level

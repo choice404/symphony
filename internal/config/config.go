@@ -72,6 +72,27 @@ type Account struct {
 	Fetch int `toml:"fetch"`
 	// How often the daemon syncs, such as 15m, 0 or unset for only on demand
 	Sync string `toml:"sync"`
+	// The SMTP host, smtp.gmail.com:465 when unset
+	SMTP string `toml:"smtp"`
+}
+
+// DefaultSMTP is the SMTP host when the account says nothing
+const DefaultSMTP = "smtp.gmail.com"
+
+/**
+ * SMTPHost
+ * Returns the SMTP host with its port, the default when unset
+ * @return string
+ **/
+func (a Account) SMTPHost() string {
+	host := a.SMTP
+	if host == "" {
+		host = DefaultSMTP
+	}
+	if !strings.Contains(host, ":") {
+		host += ":465"
+	}
+	return host
 }
 
 // DefaultFetch is how many messages the daemon keeps when the account says nothing

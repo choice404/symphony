@@ -40,68 +40,70 @@ func mailRuntime(t *testing.T) *geas.Runtime {
 	return rt
 }
 
-func TestContractListsAndOpens(t *testing.T) {
+func TestContractListsOpensAndStates(t *testing.T) {
 	rt := mailRuntime(t)
-	c := NewContract(rt, Fixed(fixture(t)), false)
+	m := New(Fixed(fixture(t)), NewContract(rt, false), Services{})
 	ctx := context.Background()
 	// The summary carries the runtime state and the counts
-	if got := c.Summary(ctx); got != "partial, 4 messages, 1 unread" {
+	if got := m.Entries()[0].Summary(ctx); got != "partial, 4 messages, 1 unread" {
 		t.Fatalf("summary = %q", got)
 	}
-	p, err := c.Render(ctx)
+	p, err := m.RenderPath(ctx, "mail/inbox")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Lines) != 6 || !strings.Contains(p.Lines[0], "[partial]") || p.Keys[5] != "1.plain" {
+	if len(p.Lines) != 7 || !strings.Contains(p.Lines[0], "[mail partial]") || p.Keys[6] != "mail/inbox/1.plain" {
 		t.Fatalf("page = %v keys = %v", p.Lines, p.Keys)
 	}
+	// The sent folder goes through the same pledge with a folder argument
+	p, _ = m.RenderPath(ctx, "mail/sent")
+	if len(p.Lines) != 4 || p.Keys[3] != "mail/sent/9.sent" {
+		t.Fatalf("sent = %v", p.Lines)
+	}
 	// Opening goes through the contract and fulfills the reading subcontract
-	resp, err := c.Act(ctx, "open", "1.plain")
-	if err != nil || resp.Kind != view.KindPage {
-		t.Fatalf("open = %+v %v", resp, err)
+	r, _ := m.Act(ctx, view.Action{Name: "open", Key: "mail/inbox/1.plain", Page: "mail/mail/inbox"})
+	if r.Kind != view.KindPage || r.Page.Lines[3] != "Subject: hello there" || r.Page.Lines[5] != "first line" {
+		t.Fatalf("open = %+v", r)
 	}
-	if resp.Page.Lines[3] != "Subject: hello there" || resp.Page.Lines[5] != "first line" {
-		t.Fatalf("message page = %v", resp.Page.Lines)
-	}
-	if got := c.Summary(ctx); got != "fulfilled, 4 messages, 1 unread" {
+	if got := m.Entries()[0].Summary(ctx); got != "fulfilled, 4 messages, 1 unread" {
 		t.Fatalf("summary after open = %q", got)
+	}
+	// A reply through the contract has the thread headers
+	r, _ = m.Act(ctx, view.Action{Name: "reply", Key: "mail/inbox/1.plain", Page: "mail/mail/inbox"})
+	if r.Kind != view.KindPage || r.Page.Lines[2] != "To: Ada <ada@example.com>" {
+		t.Fatalf("reply = %+v", r)
 	}
 }
 
 func TestContractNotConfiguredBreaks(t *testing.T) {
 	rt := mailRuntime(t)
-	c := NewContract(rt, Fixed(""), false)
+	m := New(Fixed(""), NewContract(rt, false), Services{})
 	ctx := context.Background()
-	// The configured pledge errs and the requirements break the contract
-	got := c.Summary(ctx)
-	if !strings.HasPrefix(got, "broken:") || !strings.Contains(got, "not configured") {
+	// An empty maildir is unconfigured before the contract is even asked
+	if got := m.Entries()[0].Summary(ctx); got != "not configured" {
 		t.Fatalf("summary = %q", got)
 	}
-	p, _ := c.Render(ctx)
-	if !strings.Contains(p.Lines[0], "not configured") {
-		t.Fatalf("page = %v", p.Lines)
-	}
-	// Opening on a broken contract is a message not a crash
-	resp, _ := c.Act(ctx, "open", "x")
-	if resp.Kind != view.KindNotify || !resp.Error {
-		t.Fatalf("open = %+v", resp)
+	// The contract itself reports it when asked through the backend
+	_, _, err := NewContract(rt, false).List(ctx, Account{Name: "x"}, FolderInbox)
+	if err == nil || !strings.HasPrefix(err.Error(), "broken:") || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("list = %v", err)
 	}
 }
 
 func TestContractMissingMaildirBreaksAndRefreshResigns(t *testing.T) {
 	rt := mailRuntime(t)
 	missing := filepath.Join(t.TempDir(), "nope")
-	c := NewContract(rt, Fixed(missing), false)
+	m := New(Fixed(missing), NewContract(rt, false), Services{})
 	ctx := context.Background()
 	// list errs with Missing and the inbox subcontract breaks the contract
-	got := c.Summary(ctx)
+	got := m.Entries()[0].Summary(ctx)
 	if !strings.HasPrefix(got, "broken:") || !strings.Contains(got, missing) {
 		t.Fatalf("summary = %q", got)
 	}
 	// Refresh signs again, still broken since nothing changed, but through a fresh instance
-	resp, _ := c.Act(ctx, "refresh", "")
-	if resp.Kind != view.KindPage || !strings.Contains(resp.Page.Lines[0], "broken") {
-		t.Fatalf("refresh = %+v", resp)
+	r, _ := m.Act(ctx, view.Action{Name: "refresh", Page: "mail/mail/inbox"})
+	if r.Kind != view.KindPage || !strings.Contains(r.Page.Lines[0], "broken") {
+		t.Fatalf("refresh = %+v", r)
 	}
 }
 
@@ -112,7 +114,7 @@ func TestMessageRoundTrip(t *testing.T) {
 		t.Fatalf("count = %d", len(back))
 	}
 	for i := range msgs {
-		if back[i].ID != msgs[i].ID || back[i].From != msgs[i].From || back[i].Seen != msgs[i].Seen || !back[i].Date.Equal(msgs[i].Date.Truncate(0)) {
+		if back[i].ID != msgs[i].ID || back[i].From != msgs[i].From || back[i].Seen != msgs[i].Seen || back[i].MessageID != msgs[i].MessageID || !back[i].Date.Equal(msgs[i].Date.Truncate(0)) {
 			t.Fatalf("message %d = %+v want %+v", i, back[i], msgs[i])
 		}
 	}

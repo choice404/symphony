@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // Registry holds every view by name and is built once
@@ -68,19 +69,42 @@ func (r Registry) Get(name string) (View, error) {
 }
 
 /**
+ * Split
+ * Splits a page name into its view and the path below it
+ * @param name {string} - the page name such as mail/school/sent
+ * @return string, string
+ **/
+func Split(name string) (string, string) {
+	// Cut at the first slash
+	if i := strings.Index(name, "/"); i >= 0 {
+		return name[:i], name[i+1:]
+	}
+	return name, ""
+}
+
+/**
  * Render
- * Renders a view by name
+ * Renders a page by name, a path below the view goes to the view's RenderPath
  * @param ctx {context.Context} - the context
- * @param name {string} - the view name
+ * @param name {string} - the page name
  * @return Page, error
  **/
 func (r Registry) Render(ctx context.Context, name string) (Page, error) {
 	// Find the view
-	v, err := r.Get(name)
+	base, path := Split(name)
+	v, err := r.Get(base)
 	if err != nil {
 		return Page{}, err
 	}
-	// Render it
+	// A path needs a pager
+	if path != "" {
+		p, ok := v.(Pager)
+		if !ok {
+			return Page{}, fmt.Errorf("%s has no page %q", base, path)
+		}
+		return p.RenderPath(ctx, path)
+	}
+	// Render the view itself
 	return v.Render(ctx)
 }
 
@@ -89,16 +113,16 @@ func (r Registry) Render(ctx context.Context, name string) (Page, error) {
  * Runs an action on a view by name
  * @param ctx {context.Context} - the context
  * @param name {string} - the view name
- * @param action {string} - the action name
- * @param key {string} - the key of the line the action was run on
+ * @param a {Action} - the action
  * @return Response, error
  **/
-func (r Registry) Act(ctx context.Context, name, action, key string) (Response, error) {
+func (r Registry) Act(ctx context.Context, name string, a Action) (Response, error) {
 	// Find the view
-	v, err := r.Get(name)
+	base, _ := Split(name)
+	v, err := r.Get(base)
 	if err != nil {
 		return Response{}, err
 	}
 	// Run the action
-	return v.Act(ctx, action, key)
+	return v.Act(ctx, a)
 }

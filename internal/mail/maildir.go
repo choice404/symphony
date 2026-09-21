@@ -32,8 +32,12 @@ type Message struct {
 	Replied bool
 	// The label a classifier gave it, empty when none ran
 	Label string
-	// The account it came from, empty for a lone unnamed account
+	// The account it came from
 	Account string
+	// The folder it sits in, inbox or sent
+	Folder string
+	// The Message-ID header, for replies
+	MessageID string
 }
 
 // decoder decodes RFC 2047 encoded words in headers
@@ -107,14 +111,15 @@ func readMessage(path string) (Message, error) {
 	date, _ := parsed.Header.Date()
 	// Build the message
 	return Message{
-		Path:    path,
-		ID:      id,
-		From:    decodeHeader(parsed.Header.Get("From")),
-		Subject: decodeHeader(parsed.Header.Get("Subject")),
-		Date:    date,
-		Seen:    strings.Contains(flags, "S"),
-		Flagged: strings.Contains(flags, "F"),
-		Replied: strings.Contains(flags, "R"),
+		Path:      path,
+		ID:        id,
+		From:      decodeHeader(parsed.Header.Get("From")),
+		Subject:   decodeHeader(parsed.Header.Get("Subject")),
+		Date:      date,
+		MessageID: strings.TrimSpace(parsed.Header.Get("Message-ID")),
+		Seen:      strings.Contains(flags, "S"),
+		Flagged:   strings.Contains(flags, "F"),
+		Replied:   strings.Contains(flags, "R"),
 	}, nil
 }
 

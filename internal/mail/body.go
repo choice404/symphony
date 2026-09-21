@@ -29,6 +29,10 @@ type Opened struct {
 	Message
 	// The To header decoded
 	To string
+	// The Reply-To header decoded, empty when absent
+	ReplyTo string
+	// The References header, for threading a reply
+	References string
 	// The body as plain text
 	Body string
 }
@@ -62,7 +66,13 @@ func Open(path string) (Opened, error) {
 		return Opened{}, err
 	}
 	// Return the opened message
-	return Opened{Message: m, To: decodeHeader(parsed.Header.Get("To")), Body: body}, nil
+	return Opened{
+		Message:    m,
+		To:         decodeHeader(parsed.Header.Get("To")),
+		ReplyTo:    decodeHeader(parsed.Header.Get("Reply-To")),
+		References: strings.TrimSpace(parsed.Header.Get("References")),
+		Body:       body,
+	}, nil
 }
 
 /**

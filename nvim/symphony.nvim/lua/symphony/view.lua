@@ -30,26 +30,62 @@ local function view_of(name)
   return name:match("^[^/]+") or name
 end
 
--- Sets the buffer local keymaps every page gets
-function M.keymaps(buf)
+-- The keymaps every page gets, then the ones its filetype adds, each sends an action with an explicit key or the line's key
+local keymaps = {
+  common = {
+    ["<CR>"] = { "open" },
+    ["r"] = { "refresh" },
+  },
+  mail = {
+    ["c"] = { "compose" },
+    ["R"] = { "reply" },
+    ["F"] = { "forward" },
+    ["D"] = { "trash" },
+    ["]a"] = { "next" },
+    ["[a"] = { "prev" },
+    ["ga"] = { "all" },
+    ["gi"] = { "folder", "inbox" },
+    ["gs"] = { "folder", "sent" },
+    ["gS"] = { "folder", "spam" },
+  },
+  message = {
+    ["R"] = { "reply" },
+    ["F"] = { "forward" },
+    ["D"] = { "trash" },
+  },
+  spam = {
+    ["d"] = { "mark" },
+    ["x"] = { "purge" },
+    ["gi"] = { "folder", "inbox" },
+    ["]a"] = { "next" },
+    ["[a"] = { "prev" },
+  },
+  compose = {
+    ["gs"] = { "send" },
+  },
+}
+
+-- Sets the buffer local keymaps for a page's filetype
+function M.keymaps(buf, filetype)
   -- Maps one key in normal mode for this buffer only
-  local function map(lhs, fn)
-    vim.keymap.set("n", lhs, fn, { buffer = buf, nowait = true, silent = true })
+  local function map(lhs, spec)
+    vim.keymap.set("n", lhs, function()
+      M.act(spec[1], spec[2])
+    end, { buffer = buf, nowait = true, silent = true })
   end
-  -- Open the item under the cursor
-  map("<CR>", function()
-    M.act("open")
-  end)
-  -- Render the page again
-  map("r", function()
-    M.act("refresh")
-  end)
-  -- Go back to the previous buffer
-  map("q", M.back)
-  -- Jump home
-  map("gh", function()
+  -- The common ones
+  for lhs, spec in pairs(keymaps.common) do
+    map(lhs, spec)
+  end
+  -- The filetype's own
+  for lhs, spec in pairs(keymaps[filetype] or {}) do
+    map(lhs, spec)
+  end
+  -- Back and home on every page
+  vim.keymap.set("n", "q", M.back, { buffer = buf, nowait = true, silent = true })
+  vim.keymap.set("n", "gh", function()
     M.open("home")
-  end)
+  end, { buffer = buf, nowait = true, silent = true })
 end
 
 -- Shows a page in its buffer and returns the buffer number
@@ -65,21 +101,28 @@ function M.show(page)
   if keys == vim.NIL or keys == nil then
     keys = {}
   end
-  -- Replace the content while the buffer is writable
+  -- The filetype suffix
+  local filetype = page.filetype
+  if filetype == vim.NIL or filetype == nil or filetype == "" then
+    filetype = "page"
+  end
+  -- Replace the content while the buffer is writable, a compose page stays writable
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
+  vim.bo[buf].modifiable = page.editable == true
   -- The options of a view buffer
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "hide"
   vim.bo[buf].swapfile = false
-  vim.bo[buf].filetype = "symphony-" .. (page.filetype or "page")
-  -- Remember the view, the keys, and the title on the buffer
+  vim.bo[buf].filetype = "symphony-" .. filetype
+  -- Remember the view, the page, the keys, the page key, and the title on the buffer
   vim.b[buf].symphony_view = view_of(page.name)
+  vim.b[buf].symphony_page = page.name
   vim.b[buf].symphony_keys = keys
+  vim.b[buf].symphony_key = (page.key ~= vim.NIL and page.key) or ""
   vim.b[buf].symphony_title = page.title
   -- Set the keymaps
-  M.keymaps(buf)
+  M.keymaps(buf, filetype)
   -- Remember the symphony buffer being left, a refresh of the same page leaves nothing
   local cur = vim.api.nvim_get_current_buf()
   if cur ~= buf and vim.b[cur].symphony_view then
@@ -93,25 +136,47 @@ function M.show(page)
   return buf
 end
 
+-- Closes a page's buffer by name, used after a send or a trash
+function M.close(name)
+  -- Nothing to close
+  if name == nil or name == vim.NIL or name == "" then
+    return
+  end
+  local buf = vim.fn.bufnr(M.prefix .. name)
+  if buf == -1 or not vim.api.nvim_buf_is_valid(buf) then
+    return
+  end
+  -- Leave it first when it is on screen
+  if buf == vim.api.nvim_get_current_buf() then
+    M.back()
+  end
+  pcall(vim.api.nvim_buf_delete, buf, { force = true })
+end
+
 -- Applies a response from the host
 function M.apply(resp)
   -- Nothing to do
   if resp == nil or resp == vim.NIL or resp.kind == "none" then
     return
   end
-  -- A page is shown
+  -- A page is shown, then anything the host wants closed goes
   if resp.kind == "page" then
     M.show(resp.page)
+    M.close(resp.close)
+    if resp.text and resp.text ~= vim.NIL and resp.text ~= "" then
+      vim.notify(resp.text)
+    end
     return
   end
-  -- A message is shown
+  -- A message is shown, then anything the host wants closed goes
   if resp.kind == "notify" then
     local level = resp.error and vim.log.levels.ERROR or vim.log.levels.INFO
     vim.notify(resp.text, level)
+    M.close(resp.close)
   end
 end
 
--- Asks the host for a view and shows it
+-- Asks the host for a page and shows it
 function M.open(name)
   -- Ask
   local ok, page = pcall(rpc.request, "symphony.render", name)
@@ -124,8 +189,8 @@ function M.open(name)
   return M.show(page)
 end
 
--- Sends an action on the current line to the host and applies the reply
-function M.act(action)
+-- Sends an action to the host and applies the reply, the key is the one given, else the cursor line's, else the page's
+function M.act(action, key)
   -- The current buffer and its view
   local buf = vim.api.nvim_get_current_buf()
   local view = vim.b[buf].symphony_view
@@ -133,12 +198,23 @@ function M.act(action)
   if not view then
     return
   end
-  -- The key of the cursor line
-  local line = vim.api.nvim_win_get_cursor(0)[1]
-  local keys = vim.b[buf].symphony_keys or {}
-  local key = keys[line] or ""
+  -- The key
+  if key == nil then
+    local line = vim.api.nvim_win_get_cursor(0)[1]
+    local keys = vim.b[buf].symphony_keys or {}
+    key = keys[line]
+    if key == nil or key == "" then
+      key = vim.b[buf].symphony_key or ""
+    end
+  end
+  -- The body, the whole buffer for a send
+  local body = ""
+  if action == "send" then
+    body = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+  end
   -- Ask
-  local ok, resp = pcall(rpc.request, "symphony.action", view, action, key)
+  local page = vim.b[buf].symphony_page or ""
+  local ok, resp = pcall(rpc.request, "symphony.action", view, action, key, page, body)
   -- Report a failure
   if not ok then
     vim.notify(tostring(resp), vim.log.levels.ERROR)

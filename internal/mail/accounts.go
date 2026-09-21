@@ -1,22 +1,39 @@
 package mail
 
 import (
+	"path/filepath"
 	"sort"
+	"strings"
 )
 
-// Account is one mailbox, a name for the column and a Maildir it syncs into
+// The folders a page can show
+const (
+	// FolderInbox is the account's Maildir root
+	FolderInbox = "inbox"
+	// FolderSent is the Maildir++ subfolder the sent sync fills
+	FolderSent = "sent"
+	// FolderSpam is the review page of likely spam, derived from the inbox
+	FolderSpam = "spam"
+)
+
+// AllAccounts is the pseudo account that merges every account
+const AllAccounts = "all"
+
+// Account is one mailbox, a name for the column, a Maildir it syncs into, and the address mail is sent from
 type Account struct {
-	// The name shown beside a message, empty for a lone unnamed account
+	// The name shown beside a message and in page names
 	Name string
 	// The Maildir root, empty when not configured
 	Dir string
+	// The address, used as From when composing
+	User string
 }
 
-// Settings is what the mail views read from the config on every render
+// Settings is what the mail view reads from the config on every render
 type Settings struct {
 	// The accounts
 	Accounts []Account
-	// How many of the newest messages the inbox shows, 0 for all
+	// How many of the newest messages a list shows, 0 for all
 	Limit int
 }
 
@@ -25,28 +42,14 @@ type Source func() Settings
 
 /**
  * Fixed
- * Wraps one Maildir as a source with a single unnamed account and no limit that never changes, an empty dir is still one account so a contract can report it
+ * Wraps one Maildir as a source with a single account named mail and no limit, an empty dir is still one account so a contract can report it
  * @param dir {string} - the Maildir root, empty when not configured
  * @return Source
  **/
 func Fixed(dir string) Source {
 	return func() Settings {
-		return Settings{Accounts: []Account{{Dir: dir}}}
+		return Settings{Accounts: []Account{{Name: "mail", Dir: dir, User: "me@example.com"}}}
 	}
-}
-
-/**
- * newest
- * Keeps the first n messages of a list already sorted newest first, all of them when n is 0
- * @param msgs {[]Message} - the sorted list
- * @param n {int} - the limit
- * @return []Message
- **/
-func newest(msgs []Message, n int) []Message {
-	if n <= 0 || len(msgs) <= n {
-		return msgs
-	}
-	return msgs[:n]
 }
 
 /**
@@ -67,48 +70,57 @@ func Configured(accs []Account) []Account {
 }
 
 /**
- * Key
- * The key of a message in a page, the account and the id so two accounts never collide
+ * FolderDir
+ * Returns the directory a folder lives in under a Maildir root, the root for the inbox and a Maildir++ subfolder for the rest
+ * @param dir {string} - the Maildir root
+ * @param folder {string} - inbox or sent
  * @return string
  **/
-func (m Message) Key() string {
-	// A lone unnamed account uses the bare id
-	if m.Account == "" {
-		return m.ID
+func FolderDir(dir, folder string) string {
+	// The inbox is the root itself
+	if folder == FolderInbox || folder == "" {
+		return dir
 	}
-	return m.Account + "/" + m.ID
+	// Everything else is a dot folder with a capital name
+	return filepath.Join(dir, "."+strings.ToUpper(folder[:1])+folder[1:])
 }
 
 /**
- * ScanAccounts
- * Scans every account into one list newest first, tagging each message with its account, and returns the failures by name
- * @param accs {[]Account} - the accounts
- * @return []Message, map[string]error
+ * Key
+ * The key of a message in a page, account, folder, and id, so nothing collides
+ * @return string
  **/
-func ScanAccounts(accs []Account) ([]Message, map[string]error) {
-	// The merged list and the failures
-	all := make([]Message, 0, 64)
-	errs := map[string]error{}
-	// Loop over every account
-	for _, a := range accs {
-		msgs, err := Scan(a.Dir)
-		if err != nil {
-			errs[a.Name] = err
-			continue
-		}
-		for _, m := range msgs {
-			m.Account = a.Name
-			all = append(all, m)
-		}
+func (m Message) Key() string {
+	return m.Account + "/" + m.Folder + "/" + m.ID
+}
+
+/**
+ * newest
+ * Keeps the first n messages of a list already sorted newest first, all of them when n is 0
+ * @param msgs {[]Message} - the sorted list
+ * @param n {int} - the limit
+ * @return []Message
+ **/
+func newest(msgs []Message, n int) []Message {
+	if n <= 0 || len(msgs) <= n {
+		return msgs
 	}
-	// Newest first across accounts, path as the tie break
-	sort.SliceStable(all, func(i, j int) bool {
-		if !all[i].Date.Equal(all[j].Date) {
-			return all[i].Date.After(all[j].Date)
+	return msgs[:n]
+}
+
+/**
+ * sortNewest
+ * Sorts messages newest first with the path as the tie break
+ * @param msgs {[]Message} - the messages, sorted in place
+ * @return void
+ **/
+func sortNewest(msgs []Message) {
+	sort.SliceStable(msgs, func(i, j int) bool {
+		if !msgs[i].Date.Equal(msgs[j].Date) {
+			return msgs[i].Date.After(msgs[j].Date)
 		}
-		return all[i].Path < all[j].Path
+		return msgs[i].Path < msgs[j].Path
 	})
-	return all, errs
 }
 
 /**
@@ -126,4 +138,20 @@ func findKey(msgs []Message, key string) (Message, bool) {
 		}
 	}
 	return Message{}, false
+}
+
+/**
+ * findAccount
+ * Finds an account by name
+ * @param accs {[]Account} - the accounts
+ * @param name {string} - the name
+ * @return Account, bool
+ **/
+func findAccount(accs []Account, name string) (Account, bool) {
+	for _, a := range accs {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return Account{}, false
 }

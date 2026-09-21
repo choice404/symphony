@@ -13,6 +13,7 @@ record Message {
     seen: Bool
     flagged: Bool
     replied: Bool
+    message_id: String
 }
 
 record Opened {
@@ -22,6 +23,8 @@ record Opened {
     subject: String
     date: Int
     body: String
+    reply_to: String
+    references: String
 }
 
 MailError is either NotConfigured or Missing(path: String) or Unreadable(detail: String)
@@ -38,8 +41,8 @@ contract Mailbox {
     }
 
     subcontract Inbox {
-        // Host bound, reads the cur and new folders of the maildir vow
-        pledge list() -> Result<List<Message>, MailError>
+        // Host bound, reads the cur and new folders of a folder under the maildir vow, inbox or sent
+        pledge list(folder: String) -> Result<List<Message>, MailError>
     }
 
     subcontract Reading {

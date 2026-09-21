@@ -8,12 +8,12 @@ import (
 // HomeName is the name of the home view
 const HomeName = "home"
 
-// Opener renders a view by name, the home view uses it so it never has to hold the registry that holds it
+// Opener renders a page by name, the home view uses it so it never has to hold the registry that holds it
 type Opener func(ctx context.Context, name string) (Page, error)
 
-// Entry is one app listed on the home page
+// Entry is one line on the home page
 type Entry struct {
-	// The view name the entry opens
+	// The page name the entry opens
 	Name string
 	// The label shown before the summary
 	Label string
@@ -23,22 +23,21 @@ type Entry struct {
 
 // Home is the landing page listing every app
 type Home struct {
-	// The entries in display order
-	entries []Entry
-	// Renders the view an entry opens
+	// Returns the entries in display order, called on every render
+	entries func() []Entry
+	// Renders the page an entry opens
 	open Opener
 }
 
 /**
  * NewHome
  * Builds the home view
- * @param open {Opener} - renders the view an entry opens
- * @param entries {...Entry} - the entries in display order
+ * @param open {Opener} - renders the page an entry opens
+ * @param entries {func() []Entry} - returns the entries in display order, called on every render
  * @return *Home
  **/
-func NewHome(open Opener, entries ...Entry) *Home {
-	// Copy the entries so the caller's slice is not shared
-	return &Home{entries: append([]Entry(nil), entries...), open: open}
+func NewHome(open Opener, entries func() []Entry) *Home {
+	return &Home{entries: entries, open: open}
 }
 
 /**
@@ -61,14 +60,14 @@ func (h *Home) Render(ctx context.Context) (Page, error) {
 	lines := []string{"symphony", ""}
 	keys := []string{"", ""}
 	// Loop over every entry
-	for _, e := range h.entries {
+	for _, e := range h.entries() {
 		// The summary when there is one
 		summary := ""
 		if e.Summary != nil {
 			summary = e.Summary(ctx)
 		}
 		// Add the line and its key
-		lines = append(lines, fmt.Sprintf("  %-12s %s", e.Label, summary))
+		lines = append(lines, fmt.Sprintf("  %-14s %s", e.Label, summary))
 		keys = append(keys, e.Name)
 	}
 	// The footer
@@ -82,13 +81,12 @@ func (h *Home) Render(ctx context.Context) (Page, error) {
  * Act
  * Opens the entry under the cursor
  * @param ctx {context.Context} - the context
- * @param action {string} - open or refresh
- * @param key {string} - the entry's view name
+ * @param a {Action} - open or refresh
  * @return Response, error
  **/
-func (h *Home) Act(ctx context.Context, action, key string) (Response, error) {
+func (h *Home) Act(ctx context.Context, a Action) (Response, error) {
 	// Dispatch on the action
-	switch action {
+	switch a.Name {
 	case "refresh":
 		// Render again
 		p, err := h.Render(ctx)
@@ -98,16 +96,16 @@ func (h *Home) Act(ctx context.Context, action, key string) (Response, error) {
 		return Show(p), nil
 	case "open":
 		// Nothing to open on a header line
-		if key == "" {
+		if a.Key == "" {
 			return Response{Kind: KindNone}, nil
 		}
-		// Render the entry's view
-		p, err := h.open(ctx, key)
+		// Render the entry's page
+		p, err := h.open(ctx, a.Key)
 		if err != nil {
 			return Fail(err.Error()), nil
 		}
 		return Show(p), nil
 	}
 	// Anything else is unknown
-	return Fail("home: unknown action " + action), nil
+	return Fail("home: unknown action " + a.Name), nil
 }
