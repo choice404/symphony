@@ -37,6 +37,11 @@ end
 
 -- Dials the daemon socket and remembers the channel, returns the channel or nil and a message
 function M.connect(path)
+  -- Already attached
+  local have = vim.g.symphony_channel
+  if open(have) then
+    return have
+  end
   -- The path to dial
   path = path or M.socket_path()
   -- Dial as an rpc channel

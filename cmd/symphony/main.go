@@ -13,18 +13,18 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/choice404/symphony"
+	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/launch"
 	"github.com/choice404/symphony/internal/nvim"
 	"github.com/choice404/symphony/internal/rpc"
 	"github.com/choice404/symphony/internal/ui"
 )
 
-// connectLua dials the daemon from inside nvim and opens home
-const connectLua = `
-local path = ...
-local chan, err = require("symphony.rpc").connect(path)
+// startLua dials the daemon from inside nvim and opens home unless a dashboard already stands in for it or a file was named
+const startLua = `
+local path, open_home = ...
+local chan, err = require("symphony").start(path, open_home)
 if not chan then error(err, 0) end
-require("symphony.view").open("home")
 `
 
 /**
@@ -78,10 +78,20 @@ func run() error {
 			p.Send(msg)
 		}
 	}
+	// The shipped editor config runs under its own app name unless the config asks for your own
+	env := []string{rpc.EnvSocket + "=" + sock, "SYMPHONY_PLUGIN=" + pluginDir}
+	cfg, _ := config.Load()
+	if !cfg.Editor.Own() {
+		if _, err := nvim.InstallConfig(symphony.ConfigFS, symphony.ConfigRoot); err != nil {
+			return err
+		}
+		env = append(env, "NVIM_APPNAME="+nvim.AppName)
+	}
 	// Start nvim with the plugin on its runtimepath
 	sess, err := nvim.Start(ctx, nvim.Options{
 		PluginDir: pluginDir,
 		Args:      os.Args[1:],
+		Env:       env,
 		OnFlush:   func(s nvim.Screen) { send(ui.FlushMsg{Screen: s}) },
 		OnExit:    func(err error) { send(ui.ExitMsg{Err: err}) },
 		Logf:      logger.Printf,
@@ -91,11 +101,8 @@ func run() error {
 	}
 	// Always close nvim, whatever way the program ends
 	defer func() { _ = sess.Close() }()
-	// After attach the plugin dials the daemon and opens home, unless a file was named on the command line
-	onAttach := func() error { return sess.Exec(connectLua, nil, sock) }
-	if hasFileArg(os.Args[1:]) {
-		onAttach = func() error { return sess.Exec(`require("symphony.rpc").connect(...)`, nil, sock) }
-	}
+	// After attach the plugin dials the daemon and opens home, unless a file was named on the command line or the dashboard is up
+	onAttach := func() error { return sess.Exec(startLua, nil, sock, !hasFileArg(os.Args[1:])) }
 	// Build the program on the alternate screen
 	p := tea.NewProgram(ui.New(sess, onAttach), tea.WithAltScreen())
 	prog.Store(p)

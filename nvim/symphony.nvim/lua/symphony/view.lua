@@ -109,6 +109,10 @@ local keymaps = {
     ["i"] = { "send", nil, "say: " },
   },
   discordweb = {},
+  config = {
+    ["e"] = { "edit" },
+    ["R"] = { "reload" },
+  },
   discordchat = {
     ["i"] = { "send", nil, "say: " },
   },
@@ -283,10 +287,34 @@ function M.apply(resp)
     require("symphony.project").enter(resp.path, resp.text)
     return
   end
-  -- A file is opened in the editor
+  -- A file is opened in the editor, and when the host asks, every write of it makes the daemon read the config again
   if resp.kind == "edit" then
     vim.cmd.edit(vim.fn.fnameescape(resp.path))
+    if resp.text == "reload" then
+      M.reload_on_write(vim.api.nvim_get_current_buf())
+    end
   end
+end
+
+-- Makes every write of the buffer ask the daemon to read the config again, the answer is shown either way
+function M.reload_on_write(buf)
+  local group = vim.api.nvim_create_augroup("symphony_config_" .. buf, { clear = true })
+  vim.api.nvim_create_autocmd("BufWritePost", {
+    group = group,
+    buffer = buf,
+    callback = function()
+      local ok, err = pcall(rpc.request, "symphony.reload")
+      -- After the written line has drawn, so the two do not stack into a prompt
+      vim.schedule(function()
+        vim.cmd.redraw()
+        if ok then
+          vim.notify("symphony: config reloaded")
+        else
+          vim.notify("symphony: " .. tostring(err), vim.log.levels.ERROR)
+        end
+      end)
+    end,
+  })
 end
 
 -- Asks the host for a page and shows it
@@ -349,7 +377,11 @@ function M.back()
       return
     end
   end
-  -- Nothing behind, go home unless already there
+  -- Nothing behind, go home unless already there, the dashboard when the config has one
+  if vim.g.symphony_dashboard and Snacks and Snacks.dashboard then
+    Snacks.dashboard()
+    return
+  end
   if vim.b[0].symphony_view ~= "home" then
     M.open("home")
   end

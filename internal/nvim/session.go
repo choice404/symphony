@@ -3,6 +3,7 @@ package nvim
 import (
 	"context"
 	"fmt"
+	"os"
 
 	client "github.com/neovim/go-client/nvim"
 )
@@ -13,6 +14,8 @@ type Options struct {
 	PluginDir string
 	// Extra arguments after --embed
 	Args []string
+	// Extra environment entries for nvim, NAME=value, on top of the current one
+	Env []string
 	// Called with a snapshot after every flush, on the redraw goroutine
 	OnFlush func(Screen)
 	// Called once when nvim goes away, with the serve error if any
@@ -57,6 +60,7 @@ func Start(ctx context.Context, opts Options) (*Session, error) {
 	v, err := client.NewChildProcess(
 		client.ChildProcessContext(ctx),
 		client.ChildProcessArgs(args...),
+		client.ChildProcessEnv(append(os.Environ(), opts.Env...)),
 		client.ChildProcessServe(false),
 		client.ChildProcessLogf(opts.Logf),
 	)

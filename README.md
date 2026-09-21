@@ -70,6 +70,21 @@ The discord page lists the servers, <CR> opens one to its text channels grouped 
 token_file = "~/.config/symphony/discord.token"
 ```
 
+# The editor
+
+Symphony runs its own nvim config, a LazyVim distro the binary writes to ~/.config/symphony/nvim and runs under NVIM_APPNAME symphony/nvim, so its plugins, data, and cache sit beside symphony's own and never touch your usual nvim. The first start clones lazy.nvim and the plugins pinned in lazy-lock.json, which needs the network once, after that it is offline. The landing screen is a dashboard with every app and its live summary from the daemon, one key each, p projects, m mail, c calendar, d discord, u discord with your account, b browser, e config, l plugins, q quit, and q on the last page of an app returns to it. The same apps sit under leader y with which-key naming them. vim-tmux-navigator is in, so ctrl h j k l cross splits and tmux panes alike.
+
+Your own additions go in ~/.config/symphony/nvim/lua/plugins, any file there is picked up and never overwritten, the shipped files are written again when a new binary changes them. lazy-lock.json is written once, :Lazy update moves it and :Lazy restore puts it back to the shipped pins. To run your usual config inside symphony instead:
+
+```
+[editor]
+config = "own"
+```
+
+# Config from inside
+
+config on home shows the file's path, whether it parses, and what each section sets. e opens the file in the editor, and when there is none yet it writes one first with every section commented out, owner only permissions. Every write of that buffer makes the daemon read the file again and build its views over it, so a new mail account, project root, or search engine is live on the next page, and a file that does not parse comes back as an error in the message line while the daemon keeps the last good config. R reloads without a write, and :Symphony config opens the file straight away.
+
 # Browser
 
 The daemon runs a headless Chromium, google-chrome, chromium, or brave, whichever is on the path or the one chrome names under [browser], with a profile of its own under ~/.local/share/symphony/browser so logins survive. The browser page lists the open tabs, o asks for a url and / for a search, and a tab page is the site read as text, headings marked, every link numbered like [3], every field shown like {2 email: _} and every button like {4 Log in}. <CR> on a link line follows it, <CR> on a field line asks for a value and types it, on a button line clicks it, f asks for a link number, gs presses Enter in the field under the cursor, b and F go back and forward, r reloads, x closes the tab. :Symphony browser example.com opens a url straight away.

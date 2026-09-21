@@ -30,6 +30,10 @@ const (
 	VersionMethod = "symphony.version"
 	// BrowserStopMethod closes the daemon's browser so a headed window can use its profile
 	BrowserStopMethod = "symphony.browser.stop"
+	// ReloadMethod reads the config again and rebuilds the views
+	ReloadMethod = "symphony.reload"
+	// EntriesMethod lists the home entries with their summaries, for the dashboard
+	EntriesMethod = "symphony.entries"
 )
 
 // stopDelay gives the stop reply time to reach the caller before the listener closes
@@ -37,8 +41,12 @@ const stopDelay = 100 * time.Millisecond
 
 // Server answers requests from every connection with one registry
 type Server struct {
-	// The views
+	// The views, swapped whole on a reload
 	reg view.Registry
+	// Guards reg
+	mu sync.RWMutex
+	// Reads the config again and rebuilds the views, nil when the daemon did not wire it
+	Reload func() error
 	// Where log lines go
 	logf func(string, ...interface{})
 	// Closed once when Stop is called
@@ -62,6 +70,29 @@ func NewServer(reg view.Registry, logf func(string, ...interface{})) *Server {
 		logf = func(string, ...interface{}) {}
 	}
 	return &Server{reg: reg, logf: logf, stop: make(chan struct{})}
+}
+
+/**
+ * Swap
+ * Replaces the views, every later request goes to the new ones
+ * @param reg {view.Registry} - the new views
+ * @return void
+ **/
+func (s *Server) Swap(reg view.Registry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reg = reg
+}
+
+/**
+ * views
+ * Returns the current views
+ * @return view.Registry
+ **/
+func (s *Server) views() view.Registry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.reg
 }
 
 /**
@@ -123,20 +154,40 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	err = errors.Join(
 		ep.Register(PingMethod, func() (string, error) { return "pong", nil }),
 		ep.Register(RenderMethod, func(name string) (map[string]interface{}, error) {
-			p, err := s.reg.Render(ctx, name)
+			p, err := s.views().Render(ctx, name)
 			if err != nil {
 				return nil, err
 			}
 			return p.ToMap(), nil
 		}),
 		ep.Register(ActionMethod, func(name, action, key, page, body string) (map[string]interface{}, error) {
-			r, err := s.reg.Act(ctx, name, view.Action{Name: action, Key: key, Page: page, Body: body})
+			r, err := s.views().Act(ctx, name, view.Action{Name: action, Key: key, Page: page, Body: body})
 			if err != nil {
 				return nil, err
 			}
 			return r.ToMap(), nil
 		}),
-		ep.Register(ViewsMethod, func() ([]string, error) { return s.reg.Names(), nil }),
+		ep.Register(ViewsMethod, func() ([]string, error) { return s.views().Names(), nil }),
+		ep.Register(EntriesMethod, func() ([]map[string]interface{}, error) {
+			v, err := s.views().Get("home")
+			if err != nil {
+				return nil, err
+			}
+			h, ok := v.(*view.Home)
+			if !ok {
+				return nil, errors.New("entries: home is not the home view")
+			}
+			return h.Items(ctx), nil
+		}),
+		ep.Register(ReloadMethod, func() (bool, error) {
+			if s.Reload == nil {
+				return false, errors.New("reload: not available")
+			}
+			if err := s.Reload(); err != nil {
+				return false, err
+			}
+			return true, nil
+		}),
 		ep.Register(VersionMethod, func() (string, error) { return s.Version, nil }),
 		ep.Register(BrowserStopMethod, func() (bool, error) {
 			if BrowserEngine != nil {

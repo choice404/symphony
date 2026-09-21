@@ -50,6 +50,25 @@ func (h *Home) Name() string {
 }
 
 /**
+ * Items
+ * Lists the entries with their summaries filled in, for a dashboard outside the pages
+ * @param ctx {context.Context} - the context
+ * @return []map[string]interface{}
+ **/
+func (h *Home) Items(ctx context.Context) []map[string]interface{} {
+	entries := h.entries()
+	out := make([]map[string]interface{}, 0, len(entries))
+	for _, e := range entries {
+		summary := ""
+		if e.Summary != nil {
+			summary = e.Summary(ctx)
+		}
+		out = append(out, map[string]interface{}{"name": e.Name, "label": e.Label, "summary": summary})
+	}
+	return out
+}
+
+/**
  * Render
  * Lists every entry with its summary
  * @param ctx {context.Context} - the context

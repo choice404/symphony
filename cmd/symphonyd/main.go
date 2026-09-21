@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync"
 	"syscall"
 
 	"github.com/choice404/symphony/internal/browser"
@@ -75,8 +76,11 @@ func run() error {
 		return err
 	}
 	// Every later read goes back to the file, a bad edit keeps the last good config and is logged
+	var lastMu sync.Mutex
 	last := cfg
 	load := func() config.Config {
+		lastMu.Lock()
+		defer lastMu.Unlock()
 		c, err := config.Load()
 		if err != nil {
 			logger.Printf("config: %v, keeping the last good one", err)
@@ -85,12 +89,36 @@ func run() error {
 		last = c
 		return c
 	}
+	// The server is filled in below, the reloader needs it to swap the views
+	var srv *host.Server
+	var closeViews func()
+	var rebuildMu sync.Mutex
+	// A reload checks the file, builds the views again, swaps them in, and closes the old ones
+	var reload func() error
+	reload = func() error {
+		rebuildMu.Lock()
+		defer rebuildMu.Unlock()
+		if _, err := config.Load(); err != nil {
+			return err
+		}
+		next, closeNext, err := host.Views(load, logger.Printf, reload)
+		if err != nil {
+			return err
+		}
+		old := closeViews
+		srv.Swap(next)
+		closeViews = closeNext
+		old()
+		logger.Printf("config reloaded")
+		return nil
+	}
 	// Build the views and keep their closer for the way out
-	reg, closeViews, err := host.Views(load, logger.Printf)
+	reg, closeFirst, err := host.Views(load, logger.Printf, reload)
 	if err != nil {
 		return err
 	}
-	defer closeViews()
+	closeViews = closeFirst
+	defer func() { closeViews() }()
 	// Listen
 	sock, err := rpc.SocketPath()
 	if err != nil {
@@ -105,7 +133,8 @@ func run() error {
 	go mailsync.Loop(ctx, load, logger.Printf)
 	go calsync.Loop(ctx, load, host.CalendarStore(), logger.Printf)
 	// Serve, reporting this binary's build id so a TUI can tell a stale daemon apart
-	srv := host.NewServer(reg, logger.Printf)
+	srv = host.NewServer(reg, logger.Printf)
+	srv.Reload = reload
 	if exe, err := os.Executable(); err == nil {
 		srv.Version, _ = launch.BuildID(exe)
 	}

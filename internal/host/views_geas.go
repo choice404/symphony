@@ -22,9 +22,10 @@ const mailModule = "libmail.geas.so"
  * Builds every view over a config loader, this build runs mail through its contract when the module is found and falls back to plain Go when it is not
  * @param load {func() config.Config} - returns the current config, called on every render so an edit lands without a restart
  * @param logf {func(string, ...interface{})} - where log lines go
+ * @param reload {func() error} - reads the config again and rebuilds the views, nil when not wired
  * @return view.Registry, func(), error
  **/
-func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
+func Views(load func() config.Config, logf func(string, ...interface{}), reload func() error) (view.Registry, func(), error) {
 	// The accounts and the services as the config says right now, and discord's gateway
 	src := accounts(load)
 	svc := services(load, logf)
@@ -34,7 +35,7 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	module, err := findModule(load())
 	if err != nil {
 		logf("geas: %v, mail runs without the contract", err)
-		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load), dv, eng, load().Browser.Search)
+		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load), dv, eng, load().Browser.Search, reload)
 		return reg, func() { closeDiscord(); eng.Stop() }, err
 	}
 	// Bring up the runtime and load it
@@ -62,7 +63,7 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	}
 	logf("geas: mail runs through %s", module)
 	// Assemble around the contract view
-	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load), dv, eng, load().Browser.Search)
+	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load), dv, eng, load().Browser.Search, reload)
 	if err != nil {
 		rt.Shutdown()
 		closeDiscord()

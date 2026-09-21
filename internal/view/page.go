@@ -151,6 +151,7 @@ func (r Response) ToMap() map[string]interface{} {
 	switch r.Kind {
 	case KindPage:
 		m["page"] = r.Page.ToMap()
+		m["text"] = r.Text
 	case KindNotify:
 		m["text"] = r.Text
 		m["error"] = r.Error

@@ -84,9 +84,20 @@ tests.connect_missing_socket = function()
 end
 
 -- The subcommand list is sorted and holds the known names
+tests.dashboard_keys = function()
+  local keys = require("symphony.dashboard").keys({
+    { name = "projects" }, { name = "mail" }, { name = "calendar" }, { name = "discord" }, { name = "discordweb" }, { name = "browser" }, { name = "config" }, { name = "cats" },
+  })
+  assert_eq(keys.projects, "p", "projects")
+  assert_eq(keys.mail, "m", "mail")
+  assert_eq(keys.discordweb, "u", "discordweb")
+  assert_eq(keys.config, "e", "config")
+  assert_eq(keys.cats, "a", "cats takes the first free letter of its name")
+end
+
 tests.subcommands_sorted = function()
   local names = require("symphony").subcommands()
-  assert_eq(table.concat(names, ","), "browser,calendar,connect,discord,health,home,leave,mail,open,ping,projects,status", "names")
+  assert_eq(table.concat(names, ","), "browser,calendar,config,connect,discord,health,home,leave,mail,open,ping,projects,status", "names")
 end
 
 -- A fake host that answers render and action from tables

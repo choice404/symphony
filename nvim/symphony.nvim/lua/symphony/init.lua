@@ -7,6 +7,26 @@ local rpc = require("symphony.rpc")
 -- Every subcommand keyed by name
 local commands = {}
 
+-- Dials the daemon when its socket is there, quietly, for a config that loads the plugin at start
+function M.attach()
+  local path = rpc.socket_path()
+  if vim.uv.fs_stat(path) then
+    rpc.connect(path)
+  end
+end
+
+-- Dials the daemon and opens home unless a dashboard stands in for it or the caller says not to, returns the channel or nil and a message
+function M.start(path, open_home)
+  local chan, err = rpc.connect(path)
+  if not chan then
+    return nil, err
+  end
+  if open_home and not vim.g.symphony_dashboard then
+    require("symphony.view").open("home")
+  end
+  return chan
+end
+
 -- Prints the host reply to a ping
 commands.ping = function()
   -- Ask the host
@@ -92,6 +112,15 @@ commands.browser = function(args)
   if args[1] then
     view.act("url", nil, args[1])
   end
+end
+
+-- Opens the config file in the editor, writing a commented one first when there is none, every write reloads the daemon
+commands.config = function()
+  local view = require("symphony.view")
+  if view.open("config") == nil then
+    return
+  end
+  view.act("edit")
 end
 
 -- Opens the projects page

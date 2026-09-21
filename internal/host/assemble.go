@@ -17,6 +17,7 @@ import (
 	"github.com/choice404/symphony/internal/mail"
 	"github.com/choice404/symphony/internal/mailsync"
 	"github.com/choice404/symphony/internal/projects"
+	"github.com/choice404/symphony/internal/settings"
 	"github.com/choice404/symphony/internal/spam"
 	"github.com/choice404/symphony/internal/view"
 )
@@ -210,14 +211,17 @@ func newDiscord(load func() config.Config, logf func(string, ...interface{})) (*
  * @param dv {*discord.Discord} - the discord view
  * @param eng {*browser.Engine} - the browser engine behind the browser and discord web views
  * @param search {string} - the search url from the config, empty for the default
+ * @param reload {func() error} - reads the config again and rebuilds the views, nil when not wired
  * @return view.Registry, error
  **/
-func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *discord.Discord, eng *browser.Engine, search string) (view.Registry, error) {
+func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *discord.Discord, eng *browser.Engine, search string, reload func() error) (view.Registry, error) {
 	// The registry, assigned after home so the opener closes over it
 	var reg view.Registry
 	// The browser and the discord web view share the engine
 	bv := browser.NewView(eng, search)
 	wv := discordweb.New(discordweb.NewClient(eng))
+	// The config page, last on home
+	sv := settings.New(config.Path, reload)
 	// The home view opens entries through the registry and lists every app's entries, projects first since it is the door to work
 	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
 	entries := func() []view.Entry {
@@ -226,12 +230,13 @@ func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *d
 		out = append(out, cv.Entries()...)
 		out = append(out, dv.Entries()...)
 		out = append(out, wv.Entries()...)
-		return append(out, bv.Entries()...)
+		out = append(out, bv.Entries()...)
+		return append(out, sv.Entries()...)
 	}
 	home := view.NewHome(open, entries)
 	// Build the registry, git has no home entry since its pages live under a project
 	var err error
-	reg, err = view.NewRegistry(home, mv, cv, pv, dv, wv, bv, gitapp.New())
+	reg, err = view.NewRegistry(home, mv, cv, pv, dv, wv, bv, sv, gitapp.New())
 	if err != nil {
 		return view.Registry{}, err
 	}

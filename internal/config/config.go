@@ -27,8 +27,25 @@ type Config struct {
 	Discord Discord `toml:"discord"`
 	// The browser section
 	Browser Browser `toml:"browser"`
+	// The editor section
+	Editor Editor `toml:"editor"`
 	// The geas section
 	Geas Geas `toml:"geas"`
+}
+
+// Editor is the [editor] section
+type Editor struct {
+	// Which nvim config runs inside symphony, symphony for the shipped one or own for your usual one
+	Config string `toml:"config"`
+}
+
+/**
+ * Own
+ * Reports whether your own nvim config should run instead of the shipped one
+ * @return bool
+ **/
+func (e Editor) Own() bool {
+	return e.Config == "own"
 }
 
 // Browser is the [browser] section
