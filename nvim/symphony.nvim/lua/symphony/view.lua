@@ -200,6 +200,33 @@ function M.keymaps(buf, filetype)
   end, { buffer = buf, nowait = true, silent = true })
 end
 
+-- Finds the line holding a key, nil when none does
+local function line_of(keys, key)
+  if key == nil or key == "" then
+    return nil
+  end
+  for i, k in ipairs(keys) do
+    if k == key then
+      return i
+    end
+  end
+  return nil
+end
+
+-- Picks the cursor row for a page, the focus key when the host names one, the line under the cursor before a re-render of the same page, else the page's own cursor
+local function cursor_row(page, buf, keys, lines)
+  local row = line_of(keys, page.focus ~= vim.NIL and page.focus or nil)
+  if not row and vim.api.nvim_get_current_buf() == buf and vim.b[buf].symphony_page == page.name then
+    local before = vim.api.nvim_win_get_cursor(0)[1]
+    local old = vim.b[buf].symphony_keys or {}
+    row = line_of(keys, old[before]) or before
+  end
+  if not row then
+    row = (page.cursor or 0) + 1
+  end
+  return math.min(math.max(row, 1), math.max(#lines, 1))
+end
+
 -- Shows a page in its buffer and returns the buffer number
 function M.show(page)
   -- The buffer
@@ -218,6 +245,8 @@ function M.show(page)
   if filetype == vim.NIL or filetype == nil or filetype == "" then
     filetype = "page"
   end
+  -- Where the cursor goes, decided before the old keys are replaced
+  local row = cursor_row(page, buf, keys, lines)
   -- Replace the content while the buffer is writable, a compose page stays writable
   vim.bo[buf].modifiable = true
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
@@ -246,8 +275,7 @@ function M.show(page)
   end
   -- Show it
   vim.api.nvim_set_current_buf(buf)
-  -- Put the cursor on the page's line, clamped to the buffer
-  local row = math.min(math.max((page.cursor or 0) + 1, 1), math.max(#lines, 1))
+  -- Put the cursor on its line
   vim.api.nvim_win_set_cursor(0, { row, 0 })
   return buf
 end

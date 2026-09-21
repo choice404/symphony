@@ -401,6 +401,27 @@ tests.project_leave_ignores_floating = function()
 end
 
 -- Unsaved changes stop a plain leave, a bang forces it
+tests.show_keeps_cursor_by_key = function()
+  local view = require("symphony.view")
+  -- A fresh page lands on its cursor line
+  view.show({ name = "t", lines = { "h", "a", "b", "c" }, keys = { "", "a", "b", "c" }, cursor = 1 })
+  assert_eq(vim.api.nvim_win_get_cursor(0)[1], 2, "cursor line")
+  vim.api.nvim_win_set_cursor(0, { 3, 0 })
+  -- The same page rendered again follows the key of the line the cursor was on
+  view.show({ name = "t", lines = { "h", "x", "a", "b", "c" }, keys = { "", "x", "a", "b", "c" }, cursor = 1 })
+  assert_eq(vim.api.nvim_win_get_cursor(0)[1], 4, "followed b")
+  -- A focus key wins
+  view.show({ name = "t", lines = { "h", "a", "b" }, keys = { "", "a", "b" }, cursor = 1, focus = "a" })
+  assert_eq(vim.api.nvim_win_get_cursor(0)[1], 2, "focus a")
+  -- A key that is gone keeps the row
+  vim.api.nvim_win_set_cursor(0, { 3, 0 })
+  view.show({ name = "t", lines = { "h", "a", "z" }, keys = { "", "a", "z" }, cursor = 1 })
+  assert_eq(vim.api.nvim_win_get_cursor(0)[1], 3, "same row")
+  -- Another page uses its own cursor
+  view.show({ name = "u", lines = { "h", "a" }, keys = { "", "a" }, cursor = 0 })
+  assert_eq(vim.api.nvim_win_get_cursor(0)[1], 1, "other page")
+end
+
 tests.edit_quit_returns_to_page = function()
   local view = require("symphony.view")
   local project = require("symphony.project")

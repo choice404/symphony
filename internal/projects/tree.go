@@ -306,7 +306,7 @@ func (p *Projects) treeAct(ctx context.Context, root string, a view.Action) (vie
 			return view.Response{Kind: view.KindEdit, Path: target, Text: filepath.Base(target)}, nil
 		}
 		p.setState(root, toggle(st, target, a.Name == "expand" || !st.expanded[target]))
-		return p.show(p.tree(ctx, root))
+		return p.show(focus(p.tree(ctx, root))(target))
 	case "collapse":
 		// An open directory closes, anything else closes its parent
 		dir := target
@@ -317,7 +317,21 @@ func (p *Projects) treeAct(ctx context.Context, root string, a view.Action) (vie
 			return view.Response{Kind: view.KindNone}, nil
 		}
 		p.setState(root, toggle(st, dir, false))
-		return p.show(p.tree(ctx, root))
+		return p.show(focus(p.tree(ctx, root))(dir))
 	}
 	return view.Fail("projects: unknown action " + a.Name), nil
+}
+
+/**
+ * focus
+ * Wraps a rendered page so the cursor lands on the line keyed by a path, the folder just opened or closed
+ * @param pg {view.Page} - the page
+ * @param err {error} - its error
+ * @return func(string) (view.Page, error)
+ **/
+func focus(pg view.Page, err error) func(string) (view.Page, error) {
+	return func(key string) (view.Page, error) {
+		pg.Focus = key
+		return pg, err
+	}
 }

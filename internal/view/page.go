@@ -17,6 +17,8 @@ type Page struct {
 	Key string
 	// The zero based line the cursor starts on
 	Cursor int
+	// The key of the line the cursor should land on, wins over Cursor when it is found
+	Focus string
 	// The filetype suffix, the buffer gets symphony-Filetype
 	Filetype string
 	// Whether the buffer stays writable, for a compose page
@@ -134,6 +136,7 @@ func (p Page) ToMap() map[string]interface{} {
 		"keys":     keys,
 		"key":      p.Key,
 		"cursor":   p.Cursor,
+		"focus":    p.Focus,
 		"filetype": p.Filetype,
 		"editable": p.Editable,
 	}

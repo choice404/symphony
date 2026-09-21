@@ -240,7 +240,9 @@ func (w *Web) Act(ctx context.Context, a view.Action) (view.Response, error) {
 			if err := w.client.ToggleFolder(strings.TrimPrefix(a.Key, "f/")); err != nil {
 				return view.Fail(err.Error()), nil
 			}
-			return w.show(w.Render(ctx))
+			pg, err := w.Render(ctx)
+			pg.Focus = a.Key
+			return w.show(pg, err)
 		}
 		return w.show(w.RenderPath(ctx, a.Key))
 	case "send":
