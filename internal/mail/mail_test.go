@@ -163,7 +163,7 @@ func TestViewListAndOpen(t *testing.T) {
 func TestViewFollowsDirChanges(t *testing.T) {
 	// The dir function answers whatever the config says right now
 	dir := ""
-	v := NewView(func() string { return dir })
+	v := NewView(func() []Account { return Fixed(dir)() })
 	ctx := context.Background()
 	if got := v.Summary(ctx); got != "not configured" {
 		t.Fatalf("before = %q", got)
@@ -171,5 +171,34 @@ func TestViewFollowsDirChanges(t *testing.T) {
 	dir = fixture(t)
 	if got := v.Summary(ctx); got != "4 messages, 1 unread" {
 		t.Fatalf("after = %q", got)
+	}
+}
+
+func TestViewTwoAccounts(t *testing.T) {
+	// Two accounts, the second one a missing directory
+	a := fixture(t)
+	missing := filepath.Join(t.TempDir(), "nope")
+	src := func() []Account { return []Account{{Name: "personal", Dir: a}, {Name: "school", Dir: missing}} }
+	v := NewView(src)
+	ctx := context.Background()
+	// The summary counts the good one and names the failed one
+	if got := v.Summary(ctx); !strings.HasPrefix(got, "4 messages, 1 unread") || !strings.Contains(got, "[school error]") {
+		t.Fatalf("summary = %q", got)
+	}
+	p, err := v.Render(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The header names the failed account, the lines carry the account column, the keys carry the account
+	if !strings.Contains(p.Lines[0], "[school error:") {
+		t.Fatalf("header = %q", p.Lines[0])
+	}
+	if !strings.Contains(p.Lines[2], "personal") || p.Keys[2] != "personal/4.html" {
+		t.Fatalf("line = %q key = %q", p.Lines[2], p.Keys[2])
+	}
+	// Opening by the account key works and the page is named by it
+	resp, _ := v.Act(ctx, "open", "personal/1.plain")
+	if resp.Kind != view.KindPage || resp.Page.Name != "mail/personal/1.plain" {
+		t.Fatalf("open = %+v", resp)
 	}
 }

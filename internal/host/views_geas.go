@@ -25,8 +25,8 @@ const mailModule = "libmail.geas.so"
  * @return view.Registry, func(), error
  **/
 func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
-	// The maildir as the config says right now
-	maildir := func() string { return load().Mail.Maildir }
+	// The accounts as the config says right now
+	maildir := accounts(load)
 	// Find the module, the contract path is read once since the runtime loads it once
 	module, err := findModule(load())
 	if err != nil {

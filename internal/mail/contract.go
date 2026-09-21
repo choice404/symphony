@@ -5,6 +5,7 @@ package mail
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,21 +24,27 @@ const (
 	errUnreadable    = 2
 )
 
-// Contract shows mail through a signed Mailbox contract, the runtime's state is the service health
+// slot is one signed Mailbox instance for one account
+type slot struct {
+	// The signed instance
+	inst *geas.Instance
+	// The maildir it was signed with, a change re-signs
+	dir string
+}
+
+// Contract shows mail through one signed Mailbox contract per account, each runtime state is that account's health
 type Contract struct {
 	// The runtime the module is loaded in
 	rt *geas.Runtime
-	// Returns the Maildir root as configured right now, handed over as the maildir vow at sign
-	dir func() string
+	// Returns the accounts as configured right now
+	src Source
 	// Whether classify is bound, so every listed message gets a label
 	labels bool
-	// Guards the instance and the last list
+	// Guards the slots and the last list
 	mu sync.Mutex
-	// The signed instance, nil before the first render
-	inst *geas.Instance
-	// The maildir the instance was signed with, a change re-signs
-	signedDir string
-	// The last list, replaced whole on every render
+	// The signed instance per account name
+	slots map[string]*slot
+	// The last merged list, replaced whole on every render
 	last []Message
 }
 
@@ -83,12 +90,12 @@ func Bind(rt *geas.Runtime) error {
  * NewContract
  * Builds the contract backed mail view
  * @param rt {*geas.Runtime} - the runtime with the module loaded and the pledges bound
- * @param dir {func() string} - returns the Maildir root, called on every render so a config edit re-signs without a restart
+ * @param src {Source} - returns the accounts, called on every render so a config edit re-signs without a restart
  * @param labels {bool} - whether classify is bound and every message should carry a label
  * @return *Contract
  **/
-func NewContract(rt *geas.Runtime, dir func() string, labels bool) *Contract {
-	return &Contract{rt: rt, dir: dir, labels: labels}
+func NewContract(rt *geas.Runtime, src Source, labels bool) *Contract {
+	return &Contract{rt: rt, src: src, labels: labels, slots: map[string]*slot{}}
 }
 
 /**
@@ -102,61 +109,87 @@ func (c *Contract) Name() string {
 
 /**
  * Summary
- * Returns the state and counts for the home page
+ * Returns the state and counts for the home page, one account as before and several as a tag each
  * @param ctx {context.Context} - the context
  * @return string
  **/
 func (c *Contract) Summary(ctx context.Context) string {
-	// Render to refresh the state
-	msgs, err := c.list()
-	if err != nil {
-		return err.Error()
+	// List everything
+	msgs, states, errs, single := c.list()
+	// A lone account reads as its state and the counts, or its error alone
+	if single {
+		if len(errs) == 1 {
+			for _, e := range errs {
+				return e
+			}
+		}
+		for _, st := range states {
+			return fmt.Sprintf("%s, %d messages, %d unread", st, len(msgs), Unread(msgs))
+		}
 	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	// The runtime's state and the counts
-	return fmt.Sprintf("%s, %d messages, %d unread", strings.ToLower(c.inst.State().String()), len(msgs), Unread(msgs))
+	// Several accounts read as the counts then a tag per account
+	tags := map[string]string{}
+	for name, st := range states {
+		tags[name] = st
+	}
+	for name, e := range errs {
+		tags[name] = e
+	}
+	if len(tags) == 0 {
+		return "not configured"
+	}
+	return fmt.Sprintf("%d messages, %d unread", len(msgs), Unread(msgs)) + notes(tags)
 }
 
 /**
  * Render
- * Lists the inbox through the contract
+ * Lists every account's inbox through its contract
  * @param ctx {context.Context} - the context
  * @return view.Page, error
  **/
 func (c *Contract) Render(ctx context.Context) (view.Page, error) {
-	// List
-	msgs, err := c.list()
-	if err != nil {
-		// A broken contract still gets a page, the error is the content
-		return view.Page{
-			Name:     ViewName,
-			Title:    "mail",
-			Lines:    []string{"mail " + err.Error(), "", "fix the config and press r"},
-			Keys:     []string{"", "", ""},
-			Filetype: "mail",
-		}, nil
+	// List everything
+	msgs, states, errs, single := c.list()
+	// Nothing configured at all
+	if len(states) == 0 && len(errs) == 0 {
+		return unconfiguredPage, nil
 	}
-	c.mu.Lock()
-	state := strings.ToLower(c.inst.State().String())
-	c.mu.Unlock()
-	// The list with the state in the header
-	return listPage(countHeader(msgs)+"  ["+state+"]", msgs), nil
+	// A lone broken account gets the error as the page
+	if single && len(errs) == 1 {
+		for _, e := range errs {
+			return view.Page{
+				Name:     ViewName,
+				Title:    "mail",
+				Lines:    []string{"mail " + e, "", "fix the config and press r"},
+				Keys:     []string{"", "", ""},
+				Filetype: "mail",
+			}, nil
+		}
+	}
+	// The header carries the counts then a tag per account, its state or its error
+	tags := map[string]string{}
+	for name, st := range states {
+		tags[name] = st
+	}
+	for name, e := range errs {
+		tags[name] = e
+	}
+	return listPage(countHeader(msgs)+notes(tags), msgs, !single), nil
 }
 
 /**
  * Act
- * Opens a message through the contract or refreshes the list
+ * Opens a message through its account's contract or refreshes the list
  * @param ctx {context.Context} - the context
  * @param action {string} - open or refresh
- * @param key {string} - the message id
+ * @param key {string} - the message key
  * @return view.Response, error
  **/
 func (c *Contract) Act(ctx context.Context, action, key string) (view.Response, error) {
 	// Dispatch on the action
 	switch action {
 	case "refresh":
-		// Drop the instance so a fixed config gets a fresh sign
+		// Drop every instance so a fixed config gets a fresh sign
 		c.resign()
 		p, err := c.Render(ctx)
 		if err != nil {
@@ -171,8 +204,8 @@ func (c *Contract) Act(ctx context.Context, action, key string) (view.Response, 
 
 /**
  * open
- * Fulfills open on the contract for one message
- * @param key {string} - the message id
+ * Fulfills open on the account's contract for one message
+ * @param key {string} - the message key
  * @return view.Response, error
  **/
 func (c *Contract) open(key string) (view.Response, error) {
@@ -181,14 +214,14 @@ func (c *Contract) open(key string) (view.Response, error) {
 		return view.Response{Kind: view.KindNone}, nil
 	}
 	c.mu.Lock()
-	inst := c.inst
-	m, ok := find(&c.last, key)
+	m, ok := findKey(c.last, key)
+	s := c.slots[m.Account]
 	c.mu.Unlock()
-	if inst == nil || !ok {
+	if !ok || s == nil {
 		return view.Fail("mail: message not in the current list, refresh"), nil
 	}
 	// Fulfill
-	v, err := inst.Fulfill("open", m.Path)
+	v, err := s.inst.Fulfill("open", m.Path)
 	if err != nil {
 		return view.Fail("mail: " + err.Error()), nil
 	}
@@ -197,32 +230,80 @@ func (c *Contract) open(key string) (view.Response, error) {
 		return view.Fail("mail " + describeError(r.Value)), nil
 	}
 	rec, _ := r.Value.(geas.Record)
-	return view.Show(messagePage(decodeOpened(rec))), nil
+	o := decodeOpened(rec)
+	o.Account = m.Account
+	return view.Show(messagePage(o)), nil
 }
 
 /**
  * list
- * Signs on first use, then fulfills list and keeps the result, an Err becomes a Go error naming the variant
- * @return []Message, error
+ * Signs each account on first use or after its maildir changed, fulfills list on each, and merges the results newest first
+ * @return []Message, map[string]string, map[string]string, bool
  **/
-func (c *Contract) list() ([]Message, error) {
+func (c *Contract) list() (msgs []Message, states, errs map[string]string, single bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	// The maildir as configured right now, a change since the sign breaks the old instance
-	dir := c.dir()
-	if c.inst != nil && dir != c.signedDir {
-		_ = c.inst.Break()
-		c.inst = nil
-		c.last = nil
+	// The accounts as configured right now, an empty maildir still gets an instance so the contract reports not configured
+	accs := c.src()
+	single = len(accs) <= 1
+	states = map[string]string{}
+	errs = map[string]string{}
+	// Drop instances of accounts that are gone
+	seen := map[string]bool{}
+	for _, a := range accs {
+		seen[a.Name] = true
+	}
+	for name, s := range c.slots {
+		if !seen[name] {
+			_ = s.inst.Break()
+			delete(c.slots, name)
+		}
+	}
+	// Loop over every account
+	all := make([]Message, 0, 64)
+	for _, a := range accs {
+		got, err := c.listOne(a)
+		if err != nil {
+			errs[a.Name] = err.Error()
+			continue
+		}
+		states[a.Name] = strings.ToLower(c.slots[a.Name].inst.State().String())
+		all = append(all, got...)
+	}
+	// Newest first across accounts
+	sort.SliceStable(all, func(i, j int) bool {
+		if !all[i].Date.Equal(all[j].Date) {
+			return all[i].Date.After(all[j].Date)
+		}
+		return all[i].Path < all[j].Path
+	})
+	// Keep the list for open
+	c.last = all
+	return all, states, errs, single
+}
+
+/**
+ * listOne
+ * Signs one account when needed, runs configured once, then fulfills list, tagging every message with the account
+ * @param a {Account} - the account
+ * @return []Message, error
+ **/
+func (c *Contract) listOne(a Account) ([]Message, error) {
+	// A changed maildir breaks the old instance
+	s := c.slots[a.Name]
+	if s != nil && s.dir != a.Dir {
+		_ = s.inst.Break()
+		delete(c.slots, a.Name)
+		s = nil
 	}
 	// Sign once and run the configured check, which breaks the contract when the vow is empty
-	if c.inst == nil {
-		inst, err := c.rt.Sign(ContractName, map[string]geas.Value{"maildir": dir})
+	if s == nil {
+		inst, err := c.rt.Sign(ContractName, map[string]geas.Value{"maildir": a.Dir})
 		if err != nil {
 			return nil, fmt.Errorf("sign: %w", err)
 		}
-		c.inst = inst
-		c.signedDir = dir
+		s = &slot{inst: inst, dir: a.Dir}
+		c.slots[a.Name] = s
 		if v, err := inst.Fulfill("configured"); err == nil {
 			if r, _ := v.(geas.Result); !r.Ok {
 				return nil, fmt.Errorf("%s: %s", strings.ToLower(inst.State().String()), describeError(r.Value))
@@ -230,39 +311,42 @@ func (c *Contract) list() ([]Message, error) {
 		}
 	}
 	// A broken contract stays broken until refresh re-signs
-	if c.inst.State() == geas.Broken {
-		return nil, fmt.Errorf("broken: %s", c.firstError())
+	if s.inst.State() == geas.Broken {
+		return nil, fmt.Errorf("broken: %s", firstError(s.inst))
 	}
 	// Fulfill list
-	v, err := c.inst.Fulfill("list")
+	v, err := s.inst.Fulfill("list")
 	if err != nil {
 		return nil, fmt.Errorf("list: %w", err)
 	}
 	r, _ := v.(geas.Result)
 	if !r.Ok {
-		return nil, fmt.Errorf("%s: %s", strings.ToLower(c.inst.State().String()), describeError(r.Value))
+		return nil, fmt.Errorf("%s: %s", strings.ToLower(s.inst.State().String()), describeError(r.Value))
 	}
-	// Keep the list for open, labeled when the classifier is bound
+	// Tag and label
 	msgs := decodeMessages(r.Value)
-	if c.labels {
-		msgs = c.classify(msgs)
+	for i := range msgs {
+		msgs[i].Account = a.Name
 	}
-	c.last = msgs
-	return c.last, nil
+	if c.labels {
+		msgs = classify(s.inst, msgs)
+	}
+	return msgs, nil
 }
 
 /**
  * classify
- * Fulfills classify for every message and returns a new list carrying the labels
+ * Fulfills classify for every message on an instance and returns a new list carrying the labels
+ * @param inst {*geas.Instance} - the account's instance
  * @param msgs {[]Message} - the messages
  * @return []Message
  **/
-func (c *Contract) classify(msgs []Message) []Message {
+func classify(inst *geas.Instance, msgs []Message) []Message {
 	// The labeled copies
 	out := make([]Message, 0, len(msgs))
 	for _, m := range msgs {
 		// Ask the plugin
-		v, err := c.inst.Fulfill("classify", m.From, m.Subject)
+		v, err := inst.Fulfill("classify", m.From, m.Subject)
 		if err == nil {
 			if r, ok := v.(geas.Result); ok && r.Ok {
 				m.Label = str(r.Value)
@@ -275,12 +359,13 @@ func (c *Contract) classify(msgs []Message) []Message {
 
 /**
  * firstError
- * Describes the first broken pledge's error
+ * Describes the first broken pledge's error on an instance
+ * @param inst {*geas.Instance} - the instance
  * @return string
  **/
-func (c *Contract) firstError() string {
+func firstError(inst *geas.Instance) string {
 	// The errors
-	errs := c.inst.Errors()
+	errs := inst.Errors()
 	if len(errs) == 0 {
 		return "no error recorded"
 	}
@@ -289,17 +374,17 @@ func (c *Contract) firstError() string {
 
 /**
  * resign
- * Breaks the current instance so the next list signs a fresh one
+ * Breaks every instance so the next list signs fresh ones
  * @return void
  **/
 func (c *Contract) resign() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.inst != nil {
-		_ = c.inst.Break()
-		c.inst = nil
-		c.last = nil
+	for name, s := range c.slots {
+		_ = s.inst.Break()
+		delete(c.slots, name)
 	}
+	c.last = nil
 }
 
 /**

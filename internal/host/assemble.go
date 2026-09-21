@@ -3,9 +3,28 @@ package host
 import (
 	"context"
 
+	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/mail"
 	"github.com/choice404/symphony/internal/view"
 )
+
+/**
+ * accounts
+ * Turns the config loader into a mail source, one mail account per configured account
+ * @param load {func() config.Config} - returns the current config
+ * @return mail.Source
+ **/
+func accounts(load func() config.Config) mail.Source {
+	return func() []mail.Account {
+		// The accounts as configured right now
+		cfg := load().Mail.All()
+		out := make([]mail.Account, 0, len(cfg))
+		for _, a := range cfg {
+			out = append(out, mail.Account{Name: a.Name, Dir: a.Maildir})
+		}
+		return out
+	}
+}
 
 // mailSource is a mail view that can also summarize itself for the home page
 type mailSource interface {

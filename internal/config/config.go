@@ -28,10 +28,37 @@ type Geas struct {
 	Contracts string `toml:"contracts"`
 }
 
-// Mail is the [mail] section
+// Mail is the [mail] section, one maildir for a single account or a list of accounts
 type Mail struct {
-	// The Maildir root, ~ is expanded
+	// The Maildir root of a single account, ~ is expanded, ignored when accounts are listed
 	Maildir string `toml:"maildir"`
+	// The accounts, each a [[mail.accounts]] table
+	Accounts []Account `toml:"accounts"`
+}
+
+// Account is one [[mail.accounts]] table
+type Account struct {
+	// The name shown in the inbox and on home, such as personal or school
+	Name string `toml:"name"`
+	// The Maildir root the account syncs into, ~ is expanded
+	Maildir string `toml:"maildir"`
+}
+
+/**
+ * All
+ * Returns every account, the single maildir counts as one unnamed account when no list is given
+ * @return []Account
+ **/
+func (m Mail) All() []Account {
+	// The list wins
+	if len(m.Accounts) > 0 {
+		return append([]Account(nil), m.Accounts...)
+	}
+	// The single maildir is one account with no name
+	if m.Maildir != "" {
+		return []Account{{Maildir: m.Maildir}}
+	}
+	return nil
 }
 
 /**
@@ -78,8 +105,11 @@ func LoadFile(path string) (Config, error) {
 		}
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
-	// Expand the home directory in paths
+	// Expand the home directory in every path
 	c.Mail.Maildir = expand(c.Mail.Maildir)
+	for i := range c.Mail.Accounts {
+		c.Mail.Accounts[i].Maildir = expand(c.Mail.Accounts[i].Maildir)
+	}
 	c.Geas.Contracts = expand(c.Geas.Contracts)
 	return c, nil
 }

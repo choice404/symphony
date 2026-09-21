@@ -11,32 +11,22 @@ import (
 // ViewName is the name of the mail view
 const ViewName = "mail"
 
-// View shows a Maildir as an inbox page and opens messages as pages
+// View shows every account's Maildir as one inbox page and opens messages as pages
 type View struct {
-	// Returns the Maildir root as configured right now, empty when not configured
-	dir func() string
+	// Returns the accounts as configured right now
+	src Source
 	// The last scan, replaced whole on every refresh and never edited
 	last atomic.Pointer[[]Message]
 }
 
 /**
  * NewView
- * Builds the mail view over a Maildir
- * @param dir {func() string} - returns the Maildir root, called on every render so a config edit lands without a restart
+ * Builds the mail view over a source of accounts
+ * @param src {Source} - returns the accounts, called on every render so a config edit lands without a restart
  * @return *View
  **/
-func NewView(dir func() string) *View {
-	return &View{dir: dir}
-}
-
-/**
- * Fixed
- * Wraps a path as a dir function that never changes, for tests and callers with one path
- * @param dir {string} - the Maildir root
- * @return func() string
- **/
-func Fixed(dir string) func() string {
-	return func() string { return dir }
+func NewView(src Source) *View {
+	return &View{src: src}
 }
 
 /**
@@ -50,42 +40,67 @@ func (v *View) Name() string {
 
 /**
  * Summary
- * Returns the one line count the home page shows
+ * Returns the one line count the home page shows, with any account that failed named
  * @param ctx {context.Context} - the context
  * @return string
  **/
 func (v *View) Summary(ctx context.Context) string {
 	// Say so when nothing is configured
-	if v.dir() == "" {
+	accs := Configured(v.src())
+	if len(accs) == 0 {
 		return "not configured"
 	}
 	// Scan
-	msgs, err := v.scan()
-	if err != nil {
-		return "error: " + err.Error()
+	msgs, errs := v.scan(accs)
+	// A lone account that failed is just the error
+	if len(accs) == 1 && len(errs) == 1 {
+		for _, err := range errs {
+			return "error: " + err.Error()
+		}
 	}
-	// Report the counts
-	return fmt.Sprintf("%d messages, %d unread", len(msgs), Unread(msgs))
+	// The counts, then every failed account
+	out := fmt.Sprintf("%d messages, %d unread", len(msgs), Unread(msgs))
+	if len(errs) > 0 {
+		failed := map[string]string{}
+		for name := range errs {
+			failed[name] = "error"
+		}
+		out += notes(failed)
+	}
+	return out
 }
 
 /**
  * Render
- * Lists the inbox newest first
+ * Lists every account's inbox newest first
  * @param ctx {context.Context} - the context
  * @return view.Page, error
  **/
 func (v *View) Render(ctx context.Context) (view.Page, error) {
-	// Explain the config when there is no Maildir
-	if v.dir() == "" {
+	// Explain the config when there is no account
+	accs := Configured(v.src())
+	if len(accs) == 0 {
 		return unconfiguredPage, nil
 	}
 	// Scan
-	msgs, err := v.scan()
-	if err != nil {
-		return view.Page{}, err
+	msgs, errs := v.scan(accs)
+	// A lone account that failed is an error page
+	if len(accs) == 1 && len(errs) == 1 {
+		for _, err := range errs {
+			return view.Page{}, err
+		}
+	}
+	// The header carries the counts and every failed account
+	header := countHeader(msgs)
+	if len(errs) > 0 {
+		failed := map[string]string{}
+		for name, err := range errs {
+			failed[name] = "error: " + err.Error()
+		}
+		header += notes(failed)
 	}
 	// Return the list
-	return listPage(countHeader(msgs), msgs), nil
+	return listPage(header, msgs, len(accs) > 1), nil
 }
 
 /**
@@ -93,7 +108,7 @@ func (v *View) Render(ctx context.Context) (view.Page, error) {
  * Opens a message or refreshes the list
  * @param ctx {context.Context} - the context
  * @param action {string} - open or refresh
- * @param key {string} - the message id
+ * @param key {string} - the message key
  * @return view.Response, error
  **/
 func (v *View) Act(ctx context.Context, action, key string) (view.Response, error) {
@@ -113,8 +128,8 @@ func (v *View) Act(ctx context.Context, action, key string) (view.Response, erro
 
 /**
  * open
- * Builds the page for one message by id
- * @param key {string} - the message id
+ * Builds the page for one message by key
+ * @param key {string} - the message key
  * @return view.Response, error
  **/
 func (v *View) open(key string) (view.Response, error) {
@@ -123,7 +138,11 @@ func (v *View) open(key string) (view.Response, error) {
 		return view.Response{Kind: view.KindNone}, nil
 	}
 	// Find the message in the last scan
-	m, ok := find(v.last.Load(), key)
+	last := v.last.Load()
+	if last == nil {
+		return view.Fail("mail: message not in the current list, refresh"), nil
+	}
+	m, ok := findKey(*last, key)
 	if !ok {
 		return view.Fail("mail: message not in the current list, refresh"), nil
 	}
@@ -132,42 +151,20 @@ func (v *View) open(key string) (view.Response, error) {
 	if err != nil {
 		return view.Fail(err.Error()), nil
 	}
+	o.Account = m.Account
 	return view.Show(messagePage(o)), nil
 }
 
 /**
  * scan
- * Reads the Maildir and remembers the result for open
- * @return []Message, error
+ * Reads every account and remembers the merged result for open
+ * @param accs {[]Account} - the configured accounts
+ * @return []Message, map[string]error
  **/
-func (v *View) scan() ([]Message, error) {
-	// Scan the directory as configured right now
-	msgs, err := Scan(v.dir())
-	if err != nil {
-		return nil, err
-	}
+func (v *View) scan(accs []Account) ([]Message, map[string]error) {
+	// Scan
+	msgs, errs := ScanAccounts(accs)
 	// Remember the new slice, the old one is left alone
 	v.last.Store(&msgs)
-	return msgs, nil
-}
-
-/**
- * find
- * Finds a message by id in a scan
- * @param last {*[]Message} - the scan, nil for none
- * @param id {string} - the message id
- * @return Message, bool
- **/
-func find(last *[]Message, id string) (Message, bool) {
-	// No scan yet
-	if last == nil {
-		return Message{}, false
-	}
-	// Loop over every message
-	for _, m := range *last {
-		if m.ID == id {
-			return m, true
-		}
-	}
-	return Message{}, false
+	return msgs, errs
 }

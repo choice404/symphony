@@ -32,6 +32,8 @@ type Message struct {
 	Replied bool
 	// The label a classifier gave it, empty when none ran
 	Label string
+	// The account it came from, empty for a lone unnamed account
+	Account string
 }
 
 // decoder decodes RFC 2047 encoded words in headers

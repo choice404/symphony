@@ -17,7 +17,7 @@ import (
  **/
 func Views(load func() config.Config, logf func(string, ...interface{})) (view.Registry, func(), error) {
 	// Assemble around the plain mail view
-	reg, err := assemble(mail.NewView(func() string { return load().Mail.Maildir }))
+	reg, err := assemble(mail.NewView(accounts(load)))
 	if err != nil {
 		return view.Registry{}, nil, err
 	}

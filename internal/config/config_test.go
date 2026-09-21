@@ -37,3 +37,37 @@ func TestLoadFileBadToml(t *testing.T) {
 		t.Fatal("expected parse error")
 	}
 }
+
+func TestAllAccounts(t *testing.T) {
+	// A lone maildir is one unnamed account
+	m := Mail{Maildir: "/m"}
+	if got := m.All(); len(got) != 1 || got[0].Name != "" || got[0].Maildir != "/m" {
+		t.Fatalf("single = %+v", got)
+	}
+	// A list wins over the maildir
+	m = Mail{Maildir: "/m", Accounts: []Account{{Name: "personal", Maildir: "/p"}, {Name: "school", Maildir: "/s"}}}
+	if got := m.All(); len(got) != 2 || got[0].Name != "personal" || got[1].Maildir != "/s" {
+		t.Fatalf("list = %+v", got)
+	}
+	// Nothing is nothing
+	if got := (Mail{}).All(); got != nil {
+		t.Fatalf("empty = %+v", got)
+	}
+}
+
+func TestLoadFileAccounts(t *testing.T) {
+	t.Setenv("HOME", "/home/tester")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	body := "[[mail.accounts]]\nname = \"personal\"\nmaildir = \"~/Mail/personal\"\n\n[[mail.accounts]]\nname = \"school\"\nmaildir = \"~/Mail/school\"\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := c.Mail.All()
+	if len(got) != 2 || got[1].Name != "school" || got[1].Maildir != "/home/tester/Mail/school" {
+		t.Fatalf("accounts = %+v", got)
+	}
+}
