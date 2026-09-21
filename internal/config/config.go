@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -59,6 +60,74 @@ type Account struct {
 	Name string `toml:"name"`
 	// The Maildir root the account syncs into, ~ is expanded
 	Maildir string `toml:"maildir"`
+	// The login, the full address, needed when the daemon syncs the account itself
+	User string `toml:"user"`
+	// The IMAP host, imap.gmail.com when unset
+	Host string `toml:"host"`
+	// How the daemon logs in, oauth for a Google OAuth2 login, password for a password file, empty when something else such as mbsync fills the maildir
+	Auth string `toml:"auth"`
+	// The file holding the password for auth = password, ~ is expanded
+	PassFile string `toml:"pass_file"`
+	// How many of the newest messages the daemon keeps locally, 2000 when unset
+	Fetch int `toml:"fetch"`
+	// How often the daemon syncs, such as 15m, 0 or unset for only on demand
+	Sync string `toml:"sync"`
+}
+
+// DefaultFetch is how many messages the daemon keeps when the account says nothing
+const DefaultFetch = 2000
+
+// DefaultHost is the IMAP host when the account says nothing
+const DefaultHost = "imap.gmail.com"
+
+/**
+ * Synced
+ * Reports whether the daemon syncs this account itself
+ * @return bool
+ **/
+func (a Account) Synced() bool {
+	return a.Auth == "oauth" || a.Auth == "password"
+}
+
+/**
+ * IMAPHost
+ * Returns the IMAP host with its port, the default when unset
+ * @return string
+ **/
+func (a Account) IMAPHost() string {
+	host := a.Host
+	if host == "" {
+		host = DefaultHost
+	}
+	if !strings.Contains(host, ":") {
+		host += ":993"
+	}
+	return host
+}
+
+/**
+ * FetchCount
+ * Returns how many messages to keep, the default when unset
+ * @return int
+ **/
+func (a Account) FetchCount() int {
+	if a.Fetch <= 0 {
+		return DefaultFetch
+	}
+	return a.Fetch
+}
+
+/**
+ * SyncEvery
+ * Parses the sync interval, zero when unset or unreadable
+ * @return time.Duration
+ **/
+func (a Account) SyncEvery() time.Duration {
+	d, err := time.ParseDuration(a.Sync)
+	if err != nil || d < 0 {
+		return 0
+	}
+	return d
 }
 
 /**
@@ -76,6 +145,20 @@ func (m Mail) All() []Account {
 		return []Account{{Maildir: m.Maildir}}
 	}
 	return nil
+}
+
+/**
+ * Dir
+ * Returns the config directory, where tokens and client files live beside the config
+ * @return string, error
+ **/
+func Dir() (string, error) {
+	// The config file's directory
+	p, err := Path()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Dir(p), nil
 }
 
 /**
@@ -126,6 +209,7 @@ func LoadFile(path string) (Config, error) {
 	c.Mail.Maildir = expand(c.Mail.Maildir)
 	for i := range c.Mail.Accounts {
 		c.Mail.Accounts[i].Maildir = expand(c.Mail.Accounts[i].Maildir)
+		c.Mail.Accounts[i].PassFile = expand(c.Mail.Accounts[i].PassFile)
 	}
 	c.Geas.Contracts = expand(c.Geas.Contracts)
 	return c, nil

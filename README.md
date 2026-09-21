@@ -132,41 +132,37 @@ MaxMessages keeps only the newest 2000 locally, which matters on Gmail where an 
 
 ## University Google Workspace behind Okta, OAuth2
 
-Okta is the identity provider in front of the Google account, so there is no password IMAP could take and an app password is usually disabled by the admin. What works is OAuth2 over IMAP, XOAUTH2. You log in once in a browser, Okta does its MFA there, Google hands back a refresh token, and every sync after that is silent until the admin revokes it.
+Okta is the identity provider in front of the Google account, so there is no password IMAP could take and app passwords are disabled by the admin. What works is OAuth2 over IMAP. You log in once in a browser, Okta does its MFA there, Google hands back a refresh token, and every sync after that is silent until the admin revokes it. symphonyd does this itself, no mbsync and no sasl plugins for this account.
 
-Two things the admin controls. IMAP has to be enabled for the domain, under Gmail, End user access, and third party apps have to be allowed or allowlisted under Security, API controls. If either is off, IMAP is closed for that account and only the Gmail API works, which is the native path below.
+Two things the admin controls. IMAP has to be enabled for the domain, under Gmail, End user access, and third party apps have to be allowed or allowlisted under Security, API controls. If either is off, IMAP is closed for that account and the login below fails with a message saying the app is blocked.
 
-You need an OAuth client of your own. In a Google Cloud project, any account, make an OAuth client of type Desktop app, add the mail scope https://mail.google.com/, and add your school address as a test user. mbsync cannot speak XOAUTH2 by itself, it needs the cyrus-sasl-xoauth2 plugin, on Arch cyrus-sasl-xoauth2-git from the AUR, and a helper that stores the refresh token and prints a fresh access token. The mutt one works, mutt_oauth2.py, or oama from the AUR. With mutt_oauth2.py, put your client id and secret into the script's Google section, then authorize once, which opens the browser where Okta runs.
-
-```
-mutt_oauth2.py --authorize ~/.config/symphony/school.tokens
-```
+You need an OAuth client of your own. In a Google Cloud project, any account, make an OAuth client of type Desktop app, and under the consent screen add your school address as a test user. Put the id and secret beside the config, mode 600:
 
 ```
-IMAPAccount school
-Host imap.gmail.com
-User you@university.edu
-AuthMechs XOAUTH2
-PassCmd "mutt_oauth2.py ~/.config/symphony/school.tokens"
-TLSType IMAPS
-
-IMAPStore school-remote
-Account school
-
-MaildirStore school-local
-Path ~/Mail/school/
-Inbox ~/Mail/school/inbox
-SubFolders Verbatim
-
-Channel school
-Far :school-remote:"INBOX"
-Near :school-local:inbox
-Create Near
-Expunge Both
-SyncState *
+client_id = "....apps.googleusercontent.com"
+client_secret = "...."
 ```
 
-The token file holds a refresh token that opens your mail, keep it mode 600 and treat it like a password.
+That file is ~/.config/symphony/google-oauth.toml. Then the account gets a user, auth = oauth, and a sync interval:
+
+```
+[[mail.accounts]]
+name = "school"
+maildir = "~/Mail/school"
+user = "you@unlv.edu"
+auth = "oauth"
+sync = "10m"
+fetch = 2000
+```
+
+Authorize once, which opens the browser where Okta runs, and prints the url in case the browser does not open:
+
+```
+symphonyd mail authorize school
+symphonyd mail sync school
+```
+
+The refresh token lands in ~/.config/symphony/tokens/school.json mode 600, treat it like a password. After that the daemon syncs the account every sync interval on its own and symphonyd mail sync forces one. fetch is how many of the newest messages it keeps locally, 2000 when unset, the sync reads the inbox and never writes to the server, a message that leaves the window on the server is removed locally, and flag changes on the server rename the local file. Personal Gmail works the same way with auth = oauth and your personal address as a test user, which is nicer than the app password, or with auth = password and pass_file pointing at the app password file.
 
 ## Proton Mail, Bridge
 
@@ -208,7 +204,7 @@ Bridge has to be running for the sync to work, so run it as a user service, prot
 
 ## Where this is going
 
-mbsync is the stopgap. The daemon was always meant to own the network, and Go has IMAP with XOAUTH2 and the OAuth2 device code flow, so the plan is that symphonyd runs the OAuth2 login itself, prints the URL or opens the browser, you do Okta or the YubiKey there once, it stores the refresh token under ~/.config/symphony mode 600 or in the system keyring, and syncs IMAP into the Maildir on its own. Same for Gmail, and Proton stays behind Bridge since that is the only way in. No sidecars, one binary, and each account becomes its own contract with authorize and sync as pledges and the runtime state as its health, which is what the per account tags already show.
+The daemon syncs Google accounts itself now, OAuth2 or a password, and Proton stays behind Bridge since that is the only way in. mbsync still works for any account with no auth set, the daemon just reads whatever is in the maildir. Next the sync becomes pledges on the account's contract so authorize and sync show up in the runtime state the per account tags already carry, and the daemon pushes read and flagged back to the server.
 
 # Status
 

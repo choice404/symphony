@@ -80,3 +80,20 @@ func TestShowLimit(t *testing.T) {
 		t.Fatal("set limit should hold")
 	}
 }
+
+func TestAccountDefaults(t *testing.T) {
+	a := Account{}
+	if a.Synced() || a.IMAPHost() != "imap.gmail.com:993" || a.FetchCount() != DefaultFetch || a.SyncEvery() != 0 {
+		t.Fatalf("defaults = %v %q %d %v", a.Synced(), a.IMAPHost(), a.FetchCount(), a.SyncEvery())
+	}
+	a = Account{Auth: "oauth", Host: "mail.example.com", Fetch: 10, Sync: "15m"}
+	if !a.Synced() || a.IMAPHost() != "mail.example.com:993" || a.FetchCount() != 10 || a.SyncEvery().Minutes() != 15 {
+		t.Fatalf("set = %v %q %d %v", a.Synced(), a.IMAPHost(), a.FetchCount(), a.SyncEvery())
+	}
+	if (Account{Host: "h:1143"}).IMAPHost() != "h:1143" {
+		t.Fatal("a port in the host should be kept")
+	}
+	if (Account{Sync: "junk"}).SyncEvery() != 0 {
+		t.Fatal("an unreadable interval should be zero")
+	}
+}

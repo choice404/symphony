@@ -12,6 +12,8 @@ import (
 	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/host"
 	"github.com/choice404/symphony/internal/launch"
+	"github.com/choice404/symphony/internal/mailsync"
+	"github.com/choice404/symphony/internal/oauth"
 	"github.com/choice404/symphony/internal/rpc"
 )
 
@@ -35,8 +37,10 @@ func main() {
 		err = stop()
 	case "status":
 		err = status()
+	case "mail":
+		err = mailCmd(os.Args[2:])
 	default:
-		err = fmt.Errorf("unknown command %q, symphonyd takes run, stop, or status", cmd)
+		err = fmt.Errorf("unknown command %q, symphonyd takes run, stop, status, or mail", cmd)
 	}
 	// Report
 	if err != nil {
@@ -88,6 +92,8 @@ func run() error {
 		return err
 	}
 	logger.Printf("listening on %s", sock)
+	// Sync the accounts that ask for it on their own clocks
+	go mailsync.Loop(ctx, load, logger.Printf)
 	// Serve, reporting this binary's build id so a TUI can tell a stale daemon apart
 	srv := host.NewServer(reg, logger.Printf)
 	if exe, err := os.Executable(); err == nil {
@@ -146,6 +152,81 @@ func status() error {
 	_ = c.Call(host.VersionMethod, &version)
 	fmt.Printf("running on %s, views: %v, build %s\n", sock, names, version)
 	return nil
+}
+
+/**
+ * mailCmd
+ * Runs the mail subcommands, authorize <account> for the browser login and sync [account] for a sync now
+ * @param args {[]string} - the words after mail
+ * @return error
+ **/
+func mailCmd(args []string) error {
+	// The subcommand
+	if len(args) == 0 {
+		return fmt.Errorf("symphonyd mail takes authorize <account> or sync [account]")
+	}
+	// The config and a logger to stderr
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	logger := log.New(os.Stderr, "", log.LstdFlags)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// Dispatch
+	switch args[0] {
+	case "authorize":
+		if len(args) < 2 {
+			return fmt.Errorf("symphonyd mail authorize <account>")
+		}
+		a, ok := account(cfg, args[1])
+		if !ok {
+			return fmt.Errorf("no account named %q in the config", args[1])
+		}
+		if a.User == "" {
+			return fmt.Errorf("%s: set user to the full address before authorizing", a.Name)
+		}
+		return oauth.Authorize(ctx, a.Name, a.User, os.Stdout)
+	case "sync":
+		// One account or every synced one
+		var failed int
+		for _, a := range cfg.Mail.All() {
+			if len(args) > 1 && a.Name != args[1] {
+				continue
+			}
+			if !a.Synced() {
+				if len(args) > 1 {
+					return fmt.Errorf("%s has no auth set, the daemon does not sync it", a.Name)
+				}
+				continue
+			}
+			if _, err := mailsync.Run(ctx, a, logger.Printf); err != nil {
+				logger.Printf("%s: sync failed: %v", a.Name, err)
+				failed++
+			}
+		}
+		if failed > 0 {
+			return fmt.Errorf("%d account(s) failed", failed)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown mail command %q, symphonyd mail takes authorize or sync", args[0])
+}
+
+/**
+ * account
+ * Finds an account by name
+ * @param cfg {config.Config} - the config
+ * @param name {string} - the name
+ * @return config.Account, bool
+ **/
+func account(cfg config.Config, name string) (config.Account, bool) {
+	for _, a := range cfg.Mail.All() {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return config.Account{}, false
 }
 
 /**
