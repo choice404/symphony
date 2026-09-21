@@ -86,7 +86,7 @@ end
 -- The subcommand list is sorted and holds the known names
 tests.subcommands_sorted = function()
   local names = require("symphony").subcommands()
-  assert_eq(table.concat(names, ","), "connect,health,home,mail,open,ping,status", "names")
+  assert_eq(table.concat(names, ","), "calendar,connect,health,home,mail,open,ping,status", "names")
 end
 
 -- A fake host that answers render and action from tables

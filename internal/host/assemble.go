@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/choice404/symphony/internal/calendar"
+	"github.com/choice404/symphony/internal/calsync"
 	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/jev"
 	"github.com/choice404/symphony/internal/mail"
@@ -12,6 +14,46 @@ import (
 	"github.com/choice404/symphony/internal/spam"
 	"github.com/choice404/symphony/internal/view"
 )
+
+/**
+ * calendarSource
+ * Turns the config loader into a calendar source, one account per oauth account
+ * @param load {func() config.Config} - returns the current config
+ * @return calendar.Source
+ **/
+func calendarSource(load func() config.Config) calendar.Source {
+	return func() calendar.Settings {
+		cfg := load()
+		out := make([]calendar.Account, 0, 4)
+		for _, a := range cfg.Mail.All() {
+			if a.Auth == "oauth" {
+				out = append(out, calendar.Account{Name: a.Name, User: a.User, Online: true})
+			}
+		}
+		return calendar.Settings{Accounts: out, Days: cfg.Calendar.Ahead()}
+	}
+}
+
+/**
+ * CalendarStore
+ * Returns the calendar cache under the cache directory
+ * @return *calendar.Store
+ **/
+func CalendarStore() *calendar.Store {
+	cacheDir, _ := os.UserCacheDir()
+	return calendar.NewStore(filepath.Join(cacheDir, "symphony", "calendar"))
+}
+
+/**
+ * newCalendar
+ * Builds the calendar view over the daemon's network services
+ * @param load {func() config.Config} - returns the current config
+ * @return *calendar.Calendar
+ **/
+func newCalendar(load func() config.Config) *calendar.Calendar {
+	svc := calendar.Services{Fetch: calsync.Fetch, Insert: calsync.Insert, Delete: calsync.Delete}
+	return calendar.New(calendarSource(load), CalendarStore(), svc)
+}
 
 /**
  * accounts
@@ -89,19 +131,21 @@ func errNotSynced(a mail.Account) error { return notSynced{name: a.Name} }
 
 /**
  * assemble
- * Builds the registry from the mail view and the home page that lists its entries
+ * Builds the registry from the mail view, the calendar view, and the home page that lists their entries
  * @param mv {*mail.Mail} - the mail view
+ * @param cv {*calendar.Calendar} - the calendar view
  * @return view.Registry, error
  **/
-func assemble(mv *mail.Mail) (view.Registry, error) {
+func assemble(mv *mail.Mail, cv *calendar.Calendar) (view.Registry, error) {
 	// The registry, assigned after home so the opener closes over it
 	var reg view.Registry
-	// The home view opens entries through the registry and lists mail's entries
+	// The home view opens entries through the registry and lists every app's entries
 	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
-	home := view.NewHome(open, mv.Entries)
+	entries := func() []view.Entry { return append(mv.Entries(), cv.Entries()...) }
+	home := view.NewHome(open, entries)
 	// Build the registry
 	var err error
-	reg, err = view.NewRegistry(home, mv)
+	reg, err = view.NewRegistry(home, mv, cv)
 	if err != nil {
 		return view.Registry{}, err
 	}

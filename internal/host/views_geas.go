@@ -32,7 +32,7 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	module, err := findModule(load())
 	if err != nil {
 		logf("geas: %v, mail runs without the contract", err)
-		reg, err := assemble(mail.New(src, mail.Plain{}, svc))
+		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load))
 		return reg, func() {}, err
 	}
 	// Bring up the runtime and load it
@@ -60,7 +60,7 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	}
 	logf("geas: mail runs through %s", module)
 	// Assemble around the contract view
-	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc))
+	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load))
 	if err != nil {
 		rt.Shutdown()
 		return view.Registry{}, nil, err

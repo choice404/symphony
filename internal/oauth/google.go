@@ -32,6 +32,12 @@ const tokenDir = "tokens"
 // mailScope is full IMAP access, the only scope Gmail takes for IMAP
 const mailScope = "https://mail.google.com/"
 
+// calendarScope is read and write access to the account's calendars
+const calendarScope = "https://www.googleapis.com/auth/calendar"
+
+// scopes is everything one login asks for, mail and calendar together so one browser trip covers both
+var scopes = []string{mailScope, calendarScope}
+
 // loginWait is how long the browser login may take
 const loginWait = 5 * time.Minute
 
@@ -93,7 +99,7 @@ func oauthConfig(c Client, redirect string) *oauth2.Config {
 		ClientID:     c.ClientID,
 		ClientSecret: c.ClientSecret,
 		Endpoint:     google.Endpoint,
-		Scopes:       []string{mailScope},
+		Scopes:       scopes,
 		RedirectURL:  redirect,
 	}
 }
@@ -295,6 +301,28 @@ func (s *saving) Token() (*oauth2.Token, error) {
 		}
 	}
 	return tok, nil
+}
+
+/**
+ * HTTPClient
+ * Returns an http client that signs every request with the account's token, refreshing and saving it as needed
+ * @param ctx {context.Context} - the context
+ * @param name {string} - the account name
+ * @return *http.Client, error
+ **/
+func HTTPClient(ctx context.Context, name string) (*http.Client, error) {
+	// The client and the stored token
+	client, err := LoadClient()
+	if err != nil {
+		return nil, err
+	}
+	tok, err := loadToken(name)
+	if err != nil {
+		return nil, err
+	}
+	// A refreshing source that saves, wrapped in a client
+	src := &saving{name: name, src: oauthConfig(client, "").TokenSource(ctx, tok), last: tok.AccessToken}
+	return oauth2.NewClient(ctx, src), nil
 }
 
 /**

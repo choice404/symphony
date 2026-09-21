@@ -42,6 +42,17 @@ make install copies the last built binaries into ~/.local/bin and the contract m
 
 Because the socket speaks msgpack rpc, a normal nvim can use it too. Put nvim/symphony.nvim on your runtimepath like any other plugin, start symphonyd, and :Symphony mail dials the socket and shows the inbox in that nvim, no TUI needed. :Symphony connect takes a socket path when it is not the default, :Symphony status says whether you are attached, and :checkhealth symphony shows the socket and pings the daemon.
 
+# Calendar
+
+Every account with auth = oauth gets a calendar, the same login covers mail and calendar so one symphonyd authorize does both, and an account authorized before the calendar scope was added needs one more authorize. Home lists an agenda per account and an all agenda, each showing today's count and the next event. An agenda is the next thirty days grouped by day, days under [calendar] changes the span, ]d and [d move a week, gt comes back to today, ]a [a and ga move between accounts, <CR> opens the event with its attendees and link, and D deletes it on the server. c opens a new event page, an editable buffer with the title, start, end, all day, and location fields above a marker and the description below, and gs saves it to the account's own calendar. Times are typed as 2026-03-01 14:00, or as 2026-03-01 with all day set to yes.
+
+The daemon keeps a cache per account under ~/.cache/symphony/calendar and warms it on the account's sync interval, so agendas open instantly and read fine offline, r fetches now, and symphonyd calendar sync warms every account from the command line.
+
+```
+[calendar]
+days = 30
+```
+
 # Contracts
 
 Service plugins are geas contracts (github.com/choice404/geas). The mail service is one, contracts/mail.geas: the maildir is a vow, list and open are pledges the daemon binds to Go, configured is a pledge whose body runs in geas, and the requirements block turns the runtime's state into the health you see on the home page, signed, partial, fulfilled, or broken with the error that broke it. The plain build never touches the runtime. make geas builds the contracts with the geas compiler, links libgeasrt in through cgo with the geas build tag, and copies the modules beside the binaries where the daemon looks for them, or set contracts under [geas] in the config to point somewhere else.

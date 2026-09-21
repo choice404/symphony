@@ -19,8 +19,31 @@ const fileRel = "symphony/config.toml"
 type Config struct {
 	// The mail section
 	Mail Mail `toml:"mail"`
+	// The calendar section
+	Calendar Calendar `toml:"calendar"`
 	// The geas section
 	Geas Geas `toml:"geas"`
+}
+
+// Calendar is the [calendar] section
+type Calendar struct {
+	// How many days ahead the agenda shows, 30 when unset
+	Days int `toml:"days"`
+}
+
+// DefaultDays is how far ahead the agenda looks when the config says nothing
+const DefaultDays = 30
+
+/**
+ * Ahead
+ * Returns the agenda window in days, the default when unset
+ * @return int
+ **/
+func (c Calendar) Ahead() int {
+	if c.Days <= 0 {
+		return DefaultDays
+	}
+	return c.Days
 }
 
 // Geas is the [geas] section

@@ -68,6 +68,15 @@ commands.mail = function(args)
   require("symphony.view").open(name)
 end
 
+-- Opens the calendar, every account's agenda, or one account's such as :Symphony calendar school
+commands.calendar = function(args)
+  local name = "calendar"
+  if args[1] then
+    name = "calendar/" .. args[1] .. "/agenda"
+  end
+  require("symphony.view").open(name)
+end
+
 -- Runs one subcommand from the words after :Symphony
 function M.command(fargs)
   -- The subcommand name, home when none was given

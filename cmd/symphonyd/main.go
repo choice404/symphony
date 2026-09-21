@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/choice404/symphony/internal/calsync"
 	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/host"
 	"github.com/choice404/symphony/internal/launch"
@@ -39,8 +40,12 @@ func main() {
 		err = status()
 	case "mail":
 		err = mailCmd(os.Args[2:])
+	case "authorize":
+		err = mailCmd(append([]string{"authorize"}, os.Args[2:]...))
+	case "calendar":
+		err = calendarCmd(os.Args[2:])
 	default:
-		err = fmt.Errorf("unknown command %q, symphonyd takes run, stop, status, or mail", cmd)
+		err = fmt.Errorf("unknown command %q, symphonyd takes run, stop, status, authorize, mail, or calendar", cmd)
 	}
 	// Report
 	if err != nil {
@@ -92,8 +97,9 @@ func run() error {
 		return err
 	}
 	logger.Printf("listening on %s", sock)
-	// Sync the accounts that ask for it on their own clocks
+	// Sync the accounts that ask for it on their own clocks, mail and calendars
 	go mailsync.Loop(ctx, load, logger.Printf)
+	go calsync.Loop(ctx, load, host.CalendarStore(), logger.Printf)
 	// Serve, reporting this binary's build id so a TUI can tell a stale daemon apart
 	srv := host.NewServer(reg, logger.Printf)
 	if exe, err := os.Executable(); err == nil {
@@ -211,6 +217,46 @@ func mailCmd(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown mail command %q, symphonyd mail takes authorize or sync", args[0])
+}
+
+/**
+ * calendarCmd
+ * Runs the calendar subcommands, sync [account] warms the cache now
+ * @param args {[]string} - the words after calendar
+ * @return error
+ **/
+func calendarCmd(args []string) error {
+	if len(args) == 0 || args[0] != "sync" {
+		return fmt.Errorf("symphonyd calendar takes sync [account]")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	logger := log.New(os.Stderr, "", log.LstdFlags)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	store := host.CalendarStore()
+	failed := 0
+	for _, a := range cfg.Mail.All() {
+		if len(args) > 1 && a.Name != args[1] {
+			continue
+		}
+		if a.Auth != "oauth" {
+			if len(args) > 1 {
+				return fmt.Errorf("%s is not an oauth account, calendars need one", a.Name)
+			}
+			continue
+		}
+		if err := calsync.Warm(ctx, a, cfg.Calendar.Ahead(), store, logger.Printf); err != nil {
+			logger.Printf("%s: calendar sync failed: %v", a.Name, err)
+			failed++
+		}
+	}
+	if failed > 0 {
+		return fmt.Errorf("%d account(s) failed", failed)
+	}
+	return nil
 }
 
 /**

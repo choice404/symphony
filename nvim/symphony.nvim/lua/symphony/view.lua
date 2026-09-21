@@ -63,6 +63,22 @@ local keymaps = {
   compose = {
     ["gs"] = { "send" },
   },
+  calendar = {
+    ["c"] = { "new" },
+    ["D"] = { "delete" },
+    ["]a"] = { "next" },
+    ["[a"] = { "prev" },
+    ["ga"] = { "all" },
+    ["]d"] = { "later" },
+    ["[d"] = { "earlier" },
+    ["gt"] = { "today" },
+  },
+  event = {
+    ["D"] = { "delete" },
+  },
+  eventedit = {
+    ["gs"] = { "save" },
+  },
 }
 
 -- Sets the buffer local keymaps for a page's filetype
