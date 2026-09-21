@@ -50,6 +50,10 @@ Home starts with a projects entry. The page lists every directory one level unde
 
 c opens a new project page with the name, the root, and whether to git init, and gs makes the directory with a README and enters it. D forgets a project's opened time, it does not touch the directory.
 
+# Git
+
+g on a project's tree opens its status page, the branch with how far ahead or behind the upstream it is, then the staged, unstaged, and untracked paths. <CR> on a path shows its diff, the staged part and the unstaged part, with diff colors. s stages the path and u takes it back out. c opens a commit page when something is staged, the message goes above the marker and the staged stat sits below it, and gs commits. l is the log, the newest two hundred commits, <CR> on one shows its patch and gs comes back to the status. p pushes and P pulls with a fast forward only, and whatever git printed lands on a page so a rejected push or a conflict is read in full. Everything runs through git itself in the daemon, and a path from a page is checked to sit inside the repository before git sees it.
+
 ```
 [projects]
 roots = ["~/projects", "~/work"]

@@ -409,6 +409,19 @@ tests.project_leave_refuses_dirty = function()
   assert_eq(project.active, nil, "left with bang")
 end
 
+-- Any action from an editable page carries the buffer text, a read only page sends none
+tests.editable_page_sends_body = function()
+  local calls, restore = fake_host({}, {})
+  local view = require("symphony.view")
+  view.show({ name = "git/commit/x//1", lines = { "msg", "---" }, keys = { "", "" }, key = "1", filetype = "gitcommit", editable = true })
+  view.act("save")
+  view.show({ name = "git/log/x", lines = { "log" }, keys = { "" }, filetype = "gitlog" })
+  view.act("refresh")
+  restore()
+  assert_eq(calls[1][5], "msg\n---", "editable body sent")
+  assert_eq(calls[2][5], "", "read only sends no body")
+end
+
 -- An edit response opens the file
 tests.apply_edit_opens_file = function()
   local view = require("symphony.view")

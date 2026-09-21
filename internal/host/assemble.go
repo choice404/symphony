@@ -8,6 +8,7 @@ import (
 	"github.com/choice404/symphony/internal/calendar"
 	"github.com/choice404/symphony/internal/calsync"
 	"github.com/choice404/symphony/internal/config"
+	"github.com/choice404/symphony/internal/gitapp"
 	"github.com/choice404/symphony/internal/jev"
 	"github.com/choice404/symphony/internal/mail"
 	"github.com/choice404/symphony/internal/mailsync"
@@ -161,9 +162,9 @@ func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects) (view
 		return append(out, cv.Entries()...)
 	}
 	home := view.NewHome(open, entries)
-	// Build the registry
+	// Build the registry, git has no home entry since its pages live under a project
 	var err error
-	reg, err = view.NewRegistry(home, mv, cv, pv)
+	reg, err = view.NewRegistry(home, mv, cv, pv, gitapp.New())
 	if err != nil {
 		return view.Registry{}, err
 	}

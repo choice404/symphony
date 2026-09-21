@@ -91,6 +91,20 @@ local keymaps = {
     ["h"] = { "collapse" },
     ["."] = { "hidden" },
   },
+  gitstatus = {
+    ["s"] = { "stage" },
+    ["u"] = { "unstage" },
+    ["c"] = { "commit" },
+    ["l"] = { "log" },
+    ["p"] = { "push" },
+    ["P"] = { "pull" },
+  },
+  gitlog = {
+    ["gs"] = { "status" },
+  },
+  gitcommit = {
+    ["gs"] = { "save" },
+  },
 }
 
 -- Sets the buffer local keymaps for a page's filetype
@@ -116,6 +130,9 @@ function M.keymaps(buf, filetype)
     end, { buffer = buf, nowait = true, silent = true })
     vim.keymap.set("n", "f", function()
       require("symphony.project").pick()
+    end, { buffer = buf, nowait = true, silent = true })
+    vim.keymap.set("n", "g", function()
+      M.open("git/status/" .. (vim.b[buf].symphony_key or ""))
     end, { buffer = buf, nowait = true, silent = true })
   else
     vim.keymap.set("n", "q", M.back, { buffer = buf, nowait = true, silent = true })
@@ -152,6 +169,10 @@ function M.show(page)
   vim.bo[buf].bufhidden = "hide"
   vim.bo[buf].swapfile = false
   vim.bo[buf].filetype = "symphony-" .. filetype
+  -- Diff pages get diff colors
+  if filetype == "diff" then
+    vim.bo[buf].syntax = "diff"
+  end
   -- Remember the view, the page, the keys, the page key, and the title on the buffer
   vim.b[buf].symphony_view = view_of(page.name)
   vim.b[buf].symphony_page = page.name
@@ -255,9 +276,9 @@ function M.act(action, key)
       key = vim.b[buf].symphony_key or ""
     end
   end
-  -- The body, the whole buffer for a send
+  -- The body, the whole buffer whenever the page is one you edit, so send, save, and anything else that submits gets it
   local body = ""
-  if action == "send" then
+  if vim.bo[buf].modifiable then
     body = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
   end
   -- Ask
