@@ -84,7 +84,7 @@ func TestEditorFilesWriteStarterOnce(t *testing.T) {
 	)
 	ctx := context.Background()
 	page, _ := s.Render(ctx)
-	if !strings.Contains(page.Lines[2], "k keymaps") {
+	if !strings.Contains(page.Lines[2], "K keymaps") {
 		t.Fatalf("hint = %v", page.Lines)
 	}
 	// The first edit writes the starter, the second finds the file as it stands

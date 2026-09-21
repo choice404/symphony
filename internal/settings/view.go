@@ -20,7 +20,7 @@ const ViewName = "config"
 const hint = "  e edit  R reload now  r refresh  q back"
 
 // editorHint is the line about the editor files
-const editorHint = "  k keymaps  o options  p plugins  t theme file  T pick a colorscheme"
+const editorHint = "  K keymaps  o options  p plugins  t theme file  T pick a colorscheme"
 
 // reloadTag is the text on an edit response that asks the plugin to reload after every write
 const reloadTag = "reload"

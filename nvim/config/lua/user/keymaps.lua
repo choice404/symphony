@@ -1,5 +1,5 @@
 -- Your keymaps, loaded after symphony's and LazyVim's so yours win, this file is written once and never touched by an update
--- Edit it from the config page with k, every write applies it straight away
+-- Edit it from the config page with K, every write applies it straight away
 local map = vim.keymap.set
 
 -- jk leaves insert mode
