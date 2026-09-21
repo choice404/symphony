@@ -97,3 +97,26 @@ func TestAccountDefaults(t *testing.T) {
 		t.Fatal("an unreadable interval should be zero")
 	}
 }
+
+func TestEnsureWritesOnce(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	path, created, err := Ensure([]byte("[calendar]\ndays = 7\n"))
+	if err != nil || !created {
+		t.Fatalf("first = %v %v", created, err)
+	}
+	st, err := os.Stat(path)
+	if err != nil || st.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v err %v", st, err)
+	}
+	dst, _ := os.Stat(filepath.Dir(path))
+	if dst.Mode().Perm() != 0o700 {
+		t.Fatalf("dir mode = %v", dst.Mode().Perm())
+	}
+	if _, created, err := Ensure([]byte("other")); err != nil || created {
+		t.Fatalf("second = %v %v", created, err)
+	}
+	c, err := LoadFile(path)
+	if err != nil || c.Calendar.Days != 7 {
+		t.Fatalf("kept = %+v %v", c, err)
+	}
+}

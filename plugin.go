@@ -11,6 +11,11 @@ const PluginRoot = "nvim/symphony.nvim"
 //go:embed nvim/symphony.nvim/lua nvim/symphony.nvim/plugin
 var PluginFS embed.FS
 
+// ExampleConfig is the full config with every key at its default, written on the first run and kept in the repo as the reference
+//
+//go:embed config.example.toml
+var ExampleConfig []byte
+
 // ConfigRoot is the path of the editor config inside ConfigFS
 const ConfigRoot = "nvim/config"
 

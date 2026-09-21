@@ -51,6 +51,8 @@ type Settings struct {
 	editorDir func() (string, error)
 	// Returns the shipped starter for a user file by name under lua/user, nil when not wired
 	starter func(name string) ([]byte, error)
+	// The config written when there is none, every key at its default
+	template []byte
 }
 
 /**
@@ -65,6 +67,16 @@ func New(path func() (string, error), reload func() error) *Settings {
 }
 
 /**
+ * WithTemplate
+ * Sets the config text written when the file is missing
+ * @param data {[]byte} - the full config with every key at its default
+ * @return *Settings
+ **/
+func (s *Settings) WithTemplate(data []byte) *Settings {
+	return &Settings{path: s.path, reload: s.reload, editorDir: s.editorDir, starter: s.starter, template: data}
+}
+
+/**
  * WithEditor
  * Wires the editor files, the directory they live in and the shipped starter written when one is missing
  * @param dir {func() (string, error)} - returns the editor config directory
@@ -72,7 +84,7 @@ func New(path func() (string, error), reload func() error) *Settings {
  * @return *Settings
  **/
 func (s *Settings) WithEditor(dir func() (string, error), starter func(string) ([]byte, error)) *Settings {
-	return &Settings{path: s.path, reload: s.reload, editorDir: dir, starter: starter}
+	return &Settings{path: s.path, reload: s.reload, editorDir: dir, starter: starter, template: s.template}
 }
 
 /**
@@ -123,7 +135,7 @@ func (s *Settings) Render(ctx context.Context) (view.Page, error) {
 	lines = append(lines, "")
 	// A missing file
 	if _, err := os.Stat(p); err != nil {
-		lines = append(lines, "no config file yet, e writes one with every section commented out")
+		lines = append(lines, "no config file yet, e writes one with every key at its default")
 		return page(lines), nil
 	}
 	// A file that does not parse shows the error and nothing else
@@ -211,7 +223,7 @@ func (s *Settings) ensure() (string, error) {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return "", fmt.Errorf("config: %w", err)
 	}
-	if err := os.WriteFile(p, []byte(Template), 0o600); err != nil {
+	if err := os.WriteFile(p, s.template, 0o600); err != nil {
 		return "", fmt.Errorf("config: %w", err)
 	}
 	return p, nil

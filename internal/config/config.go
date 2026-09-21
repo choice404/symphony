@@ -289,6 +289,31 @@ func Load() (Config, error) {
 }
 
 /**
+ * Ensure
+ * Writes the given config text to the config path when no file is there yet, the directory owner only and the file mode 600, and reports whether it wrote
+ * @param data {[]byte} - the config text to write
+ * @return string, bool, error
+ **/
+func Ensure(data []byte) (string, bool, error) {
+	path, err := Path()
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path, false, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", false, fmt.Errorf("config: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", false, fmt.Errorf("config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", false, fmt.Errorf("config: %w", err)
+	}
+	return path, true, nil
+}
+
+/**
  * LoadFile
  * Reads one config file by path
  * @param path {string} - the file

@@ -13,7 +13,7 @@ import (
 
 func TestMissingFileThenTemplate(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "sub", "config.toml")
-	s := New(func() (string, error) { return p, nil }, nil)
+	s := New(func() (string, error) { return p, nil }, nil).WithTemplate([]byte("[calendar]\ndays = 0\n[projects]\nroots = []\n"))
 	ctx := context.Background()
 	// The home entry and the page say there is no file
 	if got := s.Entries()[0].Summary(ctx); got != "none yet, open to write one" {
@@ -32,7 +32,7 @@ func TestMissingFileThenTemplate(t *testing.T) {
 	if err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("stat = %v err %v", st, err)
 	}
-	// The template parses as it stands and shows as ok
+	// The template parses and shows as ok with the defaults
 	page, _ = s.Render(ctx)
 	if page.Lines[3] != "status: ok" || !strings.Contains(strings.Join(page.Lines, "\n"), "projects roots: ~/projects") || !strings.Contains(strings.Join(page.Lines, "\n"), "editor: symphony's own") {
 		t.Fatalf("page = %v", page.Lines)

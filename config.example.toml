@@ -1,0 +1,55 @@
+# symphony config, ~/.config/symphony/config.toml
+# every key is here with its default or blank, a blank string or a zero means unset and the default applies
+# secrets never go in this file, they live in files beside it with mode 600 or in env vars
+# symphony reads this file again after every write from its config page, e on the dashboard
+
+[mail]
+# one maildir when there is a single account and no [[mail.accounts]] list, ~ expands
+maildir = ""
+# how many of the newest messages an inbox page shows, 500 when unset
+limit = 0
+
+# one block per account, copy it for each, the name is what the pages and symphonyd commands call it
+# [[mail.accounts]]
+# name = "personal"
+# maildir = "~/mail/personal"
+# # the login, the full address, needed when the daemon syncs the account itself
+# user = "you@gmail.com"
+# # the IMAP host, imap.gmail.com when unset, a port after a colon
+# host = ""
+# # oauth for a Google login, password for a password file, blank when mbsync or another tool fills the maildir
+# auth = "password"
+# # the file holding the password for auth = password
+# pass_file = "~/.config/symphony/personal.pass"
+# # how many of the newest messages the daemon keeps locally, 2000 when unset
+# fetch = 0
+# # how often the daemon syncs, such as 15m, blank for only on demand
+# sync = "15m"
+# # the SMTP host for sending, smtp.gmail.com:465 when unset
+# smtp = ""
+
+[calendar]
+# how many days ahead the agenda shows, 30 when unset
+days = 0
+
+[projects]
+# the directories whose children are projects, ~/projects when empty
+roots = []
+
+[discord]
+# the file holding the bot token, mode 600, blank keeps the bot page off, discord (you) needs no token
+token_file = ""
+
+[browser]
+# the chromium binary, blank finds google-chrome, chromium, or brave on the path
+chrome = ""
+# the search url a query is appended to, blank is a searxng on this machine at http://127.0.0.1:8888/search?q=
+search = ""
+
+[editor]
+# symphony for the shipped nvim config under ~/.config/symphony/nvim, own for your usual nvim config
+config = "symphony"
+
+[geas]
+# where the service contracts live, blank is ~/.local/share/symphony/contracts
+contracts = ""

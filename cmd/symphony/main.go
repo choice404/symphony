@@ -78,6 +78,12 @@ func run() error {
 			p.Send(msg)
 		}
 	}
+	// The first run writes a config with every key at its default so there is always a file to edit
+	if path, created, err := config.Ensure(symphony.ExampleConfig); err != nil {
+		return err
+	} else if created {
+		logger.Printf("wrote %s", path)
+	}
 	// The shipped editor config runs under its own app name unless the config asks for your own
 	env := []string{rpc.EnvSocket + "=" + sock, "SYMPHONY_PLUGIN=" + pluginDir}
 	cfg, _ := config.Load()

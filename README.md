@@ -83,7 +83,7 @@ config = "own"
 
 # Config from inside
 
-config on home shows the file's path, whether it parses, and what each section sets. e opens the file in the editor, and when there is none yet it writes one first with every section commented out, owner only permissions. Every write of that buffer makes the daemon read the file again and build its views over it, so a new mail account, project root, or search engine is live on the next page, and a file that does not parse comes back as an error in the message line while the daemon keeps the last good config. R reloads without a write, and :Symphony config opens the file straight away. :q, :wq, ZZ, and ZQ on a file a page opened go back to that page, the same way a project file goes back to its tree, :qa still quits.
+The first run writes ~/.config/symphony/config.toml with every key present at its default or blank, mode 600, the same file as config.example.toml in the repo, so the reference for every setting is the file itself. A blank string or a zero means unset and the default applies. config on home shows the file's path, whether it parses, and what each section sets. e opens the file in the editor. Every write of that buffer makes the daemon read the file again and build its views over it, so a new mail account, project root, or search engine is live on the next page, and a file that does not parse comes back as an error in the message line while the daemon keeps the last good config. R reloads without a write, and :Symphony config opens the file straight away. :q, :wq, ZZ, and ZQ on a file a page opened go back to that page, the same way a project file goes back to its tree, :qa still quits.
 
 # Browser
 

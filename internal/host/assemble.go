@@ -226,7 +226,7 @@ func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *d
 	starter := func(name string) ([]byte, error) {
 		return symphony.ConfigFS.ReadFile(symphony.ConfigRoot + "/" + nvim.UserDir + name)
 	}
-	sv := settings.New(config.Path, reload).WithEditor(nvim.ConfigDir, starter)
+	sv := settings.New(config.Path, reload).WithTemplate(symphony.ExampleConfig).WithEditor(nvim.ConfigDir, starter)
 	// The home view opens entries through the registry and lists every app's entries, projects first since it is the door to work
 	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
 	entries := func() []view.Entry {
