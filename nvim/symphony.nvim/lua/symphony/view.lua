@@ -86,6 +86,11 @@ local keymaps = {
   projectnew = {
     ["gs"] = { "save" },
   },
+  tree = {
+    ["l"] = { "expand" },
+    ["h"] = { "collapse" },
+    ["."] = { "hidden" },
+  },
 }
 
 -- Sets the buffer local keymaps for a page's filetype
@@ -104,8 +109,17 @@ function M.keymaps(buf, filetype)
   for lhs, spec in pairs(keymaps[filetype] or {}) do
     map(lhs, spec)
   end
-  -- Back and home on every page
-  vim.keymap.set("n", "q", M.back, { buffer = buf, nowait = true, silent = true })
+  -- Back and home on every page, the tree page's q and f belong to project mode
+  if filetype == "tree" then
+    vim.keymap.set("n", "q", function()
+      require("symphony.project").leave(false)
+    end, { buffer = buf, nowait = true, silent = true })
+    vim.keymap.set("n", "f", function()
+      require("symphony.project").pick()
+    end, { buffer = buf, nowait = true, silent = true })
+  else
+    vim.keymap.set("n", "q", M.back, { buffer = buf, nowait = true, silent = true })
+  end
   vim.keymap.set("n", "gh", function()
     M.open("home")
   end, { buffer = buf, nowait = true, silent = true })
@@ -202,6 +216,11 @@ function M.apply(resp)
   if resp.kind == "enter" then
     M.close(resp.close)
     require("symphony.project").enter(resp.path, resp.text)
+    return
+  end
+  -- A file is opened in the editor
+  if resp.kind == "edit" then
+    vim.cmd.edit(vim.fn.fnameescape(resp.path))
   end
 end
 

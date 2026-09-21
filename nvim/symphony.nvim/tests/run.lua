@@ -293,53 +293,93 @@ tests.status_without_host = function()
 end
 
 
--- Entering a project changes the directory, sets the global, and installs the quit commands
-tests.project_enter_and_leave = function()
+-- A fake host that also serves tree pages for any project path
+local function project_host()
+  local tree = { name = "", lines = { "demo  /x", "hint", "", "-rw- a.txt" }, keys = { "", "", "", "" }, filetype = "tree" }
+  local rpc = require("symphony.rpc")
+  local old = rpc.request
+  rpc.request = function(method, name)
+    if method == "symphony.render" then
+      if name == "projects" then
+        return { name = "projects", lines = { "projects" }, keys = { "" }, filetype = "projects" }
+      end
+      if name:sub(1, 14) == "projects/tree/" then
+        local page = vim.deepcopy(tree)
+        page.name = name
+        page.key = name:sub(15)
+        return page
+      end
+      error("no view named " .. tostring(name), 0)
+    end
+    return { kind = "none" }
+  end
+  return function()
+    rpc.request = old
+  end
+end
+
+-- Entering a project opens a tab with the tree page and sets the tab's directory
+tests.project_enter_opens_tab = function()
   local project = require("symphony.project")
-  local view = require("symphony.view")
   local dir = vim.fn.tempname()
   vim.fn.mkdir(dir .. "/src", "p")
-  vim.fn.writefile({ "hello" }, dir .. "/src/a.txt")
-  local before = vim.fn.getcwd()
+  local before_tabs = #vim.api.nvim_list_tabpages()
+  local before_cwd = vim.fn.getcwd(-1, 0)
+  local restore = project_host()
+  project.enter(dir, "demo")
+  assert_eq(#vim.api.nvim_list_tabpages(), before_tabs + 1, "a tab was opened")
+  assert_eq(vim.fn.getcwd(), dir, "tab cwd")
+  assert_eq(vim.b[0].symphony_page, "projects/tree/" .. dir, "tree page shown")
+  assert_eq(vim.g.symphony_project, dir, "global")
   -- The commands exist from setup
   local cmds = vim.api.nvim_get_commands({})
   assert_true(cmds.SymphonyQuit ~= nil and cmds.SymphonyWq ~= nil, "quit commands missing")
-  -- Enter
-  local _, restore = fake_host({ projects = { name = "projects", lines = { "projects" }, keys = { "" }, filetype = "projects" } }, {})
-  project.enter(dir, "demo")
-  assert_eq(vim.fn.getcwd(), dir, "cwd")
-  assert_eq(vim.g.symphony_project, dir, "global")
-  assert_true(project.active ~= nil, "active")
-  -- Open a file under it and leave, the file buffer goes and the projects page shows
-  vim.cmd.edit(dir .. "/src/a.txt")
-  local fbuf = vim.api.nvim_get_current_buf()
-  project.leave(false)
+  project.leave(true)
   restore()
   assert_eq(project.active, nil, "left")
-  assert_eq(vim.g.symphony_project, nil, "global cleared")
-  assert_eq(vim.fn.getcwd(), before, "cwd restored")
+  assert_eq(#vim.api.nvim_list_tabpages(), before_tabs, "tab closed")
+  assert_eq(vim.fn.getcwd(-1, 0), before_cwd, "first tab cwd untouched")
   assert_eq(vim.b[0].symphony_view, "projects", "projects page shown")
-  assert_eq(vim.api.nvim_buf_is_valid(fbuf), false, "file buffer dropped")
 end
 
--- A floating window on screen does not count as a split, leave still comes back to the page
+-- :q on a file goes back to the tree and drops the file, :q on the tree closes the project
+tests.project_leave_climbs = function()
+  local project = require("symphony.project")
+  local dir = vim.fn.tempname()
+  vim.fn.mkdir(dir, "p")
+  vim.fn.writefile({ "hello" }, dir .. "/a.txt")
+  local restore = project_host()
+  project.enter(dir, "demo")
+  vim.cmd.edit(dir .. "/a.txt")
+  local fbuf = vim.api.nvim_get_current_buf()
+  project.leave(false)
+  assert_true(project.active ~= nil, "still in the project after leaving a file")
+  assert_eq(vim.b[0].symphony_page, "projects/tree/" .. dir, "back on the tree")
+  assert_eq(vim.api.nvim_buf_is_valid(fbuf), false, "file buffer dropped")
+  project.leave(false)
+  restore()
+  assert_eq(project.active, nil, "closed from the tree")
+  assert_eq(vim.b[0].symphony_view, "projects", "projects page shown")
+end
+
+-- A floating window on screen does not count as a split
 tests.project_leave_ignores_floating = function()
   local project = require("symphony.project")
   local dir = vim.fn.tempname()
   vim.fn.mkdir(dir, "p")
   vim.fn.writefile({ "x" }, dir .. "/c.txt")
-  local _, restore = fake_host({ projects = { name = "projects", lines = { "projects" }, keys = { "" }, filetype = "projects" } }, {})
+  local restore = project_host()
   project.enter(dir, "f")
   vim.cmd.edit(dir .. "/c.txt")
-  -- A popup like a notification
   local fbuf = vim.api.nvim_create_buf(false, true)
   local float = vim.api.nvim_open_win(fbuf, false, { relative = "editor", width = 10, height = 2, row = 1, col = 1 })
   assert_true(#vim.api.nvim_tabpage_list_wins(0) > 1, "float counted by nvim")
   project.leave(false)
-  restore()
   pcall(vim.api.nvim_win_close, float, true)
-  assert_eq(project.active, nil, "left despite the float")
-  assert_eq(vim.b[0].symphony_view, "projects", "projects page shown")
+  assert_eq(vim.b[0].symphony_page, "projects/tree/" .. dir, "back on the tree despite the float")
+  project.leave(true)
+  restore()
+  assert_eq(project.active, nil, "closed")
 end
 
 -- Unsaved changes stop a plain leave, a bang forces it
@@ -348,7 +388,7 @@ tests.project_leave_refuses_dirty = function()
   local dir = vim.fn.tempname()
   vim.fn.mkdir(dir, "p")
   vim.fn.writefile({ "x" }, dir .. "/b.txt")
-  local _, restore = fake_host({ projects = { name = "projects", lines = { "projects" }, keys = { "" }, filetype = "projects" } }, {})
+  local restore = project_host()
   project.enter(dir, "d")
   vim.cmd.edit(dir .. "/b.txt")
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "changed" })
@@ -364,8 +404,19 @@ tests.project_leave_refuses_dirty = function()
   assert_true(project.active ~= nil, "still active after refused leave")
   assert_true(seen ~= nil and seen:find("E37", 1, true) ~= nil, "E37 shown")
   project.leave(true)
+  project.leave(true)
   restore()
   assert_eq(project.active, nil, "left with bang")
+end
+
+-- An edit response opens the file
+tests.apply_edit_opens_file = function()
+  local view = require("symphony.view")
+  local file = vim.fn.tempname()
+  vim.fn.writefile({ "content" }, file)
+  view.apply({ kind = "edit", path = file, text = "x" })
+  assert_eq(vim.api.nvim_buf_get_name(0), file, "file opened")
+  assert_eq(vim.api.nvim_buf_get_lines(0, 0, 1, false)[1], "content", "file content")
 end
 
 -- Run every test in name order

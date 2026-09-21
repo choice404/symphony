@@ -1,13 +1,10 @@
--- Project mode, working inside one directory with your own nvim setup, and coming back to the projects page on :q
+-- Project mode, a tab of its own with the project's file tree, files opened from it, and :q climbing back to the tree and then to the projects page
 local M = {}
 
--- The project being worked on, nil outside project mode
+-- The project being worked on, nil outside project mode, with its path, name, and tab
 M.active = nil
 
--- The directory nvim was in before the project was entered
-M.previous_cwd = nil
-
--- The pickers tried in order once a project is entered, the first command that exists wins
+-- The pickers tried in order for f on the tree page, the first command that exists wins
 local pickers = {
   { cmd = "Telescope", run = "Telescope find_files" },
   { cmd = "FzfLua", run = "FzfLua files" },
@@ -17,7 +14,7 @@ local pickers = {
 }
 
 -- Opens whatever file picker this nvim has
-local function pick()
+function M.pick()
   for _, p in ipairs(pickers) do
     if vim.fn.exists(":" .. p.cmd) == 2 then
       vim.cmd(p.run)
@@ -26,27 +23,31 @@ local function pick()
   end
 end
 
--- Enters a project, cd into it, remember it, and open the picker
+-- The tree page name of a project
+local function tree_page(path)
+  return "projects/tree/" .. path
+end
+
+-- Enters a project in a new tab, the tab's directory set to it and its tree page shown
 function M.enter(path, name)
-  -- Remember where we were
-  if not M.active then
-    M.previous_cwd = vim.fn.getcwd()
+  -- Leave whatever project was open first
+  if M.active then
+    M.leave(true)
   end
-  M.active = { path = path, name = name or vim.fn.fnamemodify(path, ":t") }
+  vim.cmd.tabnew()
+  M.active = { path = path, name = name or vim.fn.fnamemodify(path, ":t"), tab = vim.api.nvim_get_current_tabpage() }
   vim.g.symphony_project = path
-  -- Move in and start on an empty buffer so the picker has somewhere to open into
-  vim.cmd.cd(vim.fn.fnameescape(path))
-  vim.cmd.enew()
-  vim.bo.bufhidden = "wipe"
-  -- ZZ and ZQ leave the project too, whatever the command line does
+  vim.cmd.tcd(vim.fn.fnameescape(path))
+  -- The tree page in this tab
+  require("symphony.view").open(tree_page(path))
+  -- ZZ and ZQ climb back the same way :q does
   vim.keymap.set("n", "ZZ", function()
     M.write_and_leave(false)
-  end, { desc = "symphony: write and leave the project" })
+  end, { desc = "symphony: write and go back" })
   vim.keymap.set("n", "ZQ", function()
     M.leave(true)
-  end, { desc = "symphony: leave the project without writing" })
-  vim.notify("symphony: project " .. M.active.name .. ", :q or ZZ comes back")
-  pick()
+  end, { desc = "symphony: go back without writing" })
+  vim.notify("symphony: project " .. M.active.name .. ", :q on a file returns to the tree, :q on the tree returns to projects")
 end
 
 -- The windows of the current tab that are not floating, the only ones :q cares about
@@ -72,10 +73,43 @@ local function buffers_under(path)
   return out
 end
 
--- Leaves project mode, or quits nvim for real when no project is active, bang forces past unsaved changes
+-- Whether the current buffer is the active project's tree page
+local function on_tree()
+  return M.active ~= nil and vim.b[0].symphony_page == tree_page(M.active.path)
+end
+
+-- Closes the project for good, its tab, its buffers, its maps, and shows the projects page where the tab came from
+local function close_project()
+  local path = M.active.path
+  local tab = M.active.tab
+  M.active = nil
+  vim.g.symphony_project = nil
+  pcall(vim.keymap.del, "n", "ZZ")
+  pcall(vim.keymap.del, "n", "ZQ")
+  for _, buf in ipairs(buffers_under(path)) do
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  end
+  -- Close the tab when more than one exists, otherwise just reuse it
+  if vim.api.nvim_tabpage_is_valid(tab) and #vim.api.nvim_list_tabpages() > 1 then
+    local cur = vim.api.nvim_get_current_tabpage()
+    vim.api.nvim_set_current_tabpage(tab)
+    vim.cmd.tabclose()
+    if cur ~= tab and vim.api.nvim_tabpage_is_valid(cur) then
+      vim.api.nvim_set_current_tabpage(cur)
+    end
+  end
+  require("symphony.view").open("projects")
+end
+
+-- Leaves one level, a file goes back to the tree and the tree goes back to the projects page, bang forces past unsaved changes, no project means an ordinary quit
 function M.leave(bang)
   -- Outside a project this is an ordinary quit
   if not M.active then
+    vim.cmd.quit({ bang = bang })
+    return
+  end
+  -- Another tab is not the project's business
+  if vim.api.nvim_get_current_tabpage() ~= M.active.tab then
     vim.cmd.quit({ bang = bang })
     return
   end
@@ -88,33 +122,34 @@ function M.leave(bang)
     vim.cmd.close({ bang = bang })
     return
   end
-  -- Unsaved work stops a plain quit the way vim does
-  local dirty = {}
-  for _, buf in ipairs(buffers_under(M.active.path)) do
-    if vim.bo[buf].modified then
-      table.insert(dirty, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":."))
+  -- On the tree page, leaving means closing the project
+  if on_tree() then
+    local dirty = {}
+    for _, buf in ipairs(buffers_under(M.active.path)) do
+      if vim.bo[buf].modified then
+        table.insert(dirty, vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":."))
+      end
     end
-  end
-  if #dirty > 0 and not bang then
-    vim.notify("E37: No write since last change in " .. table.concat(dirty, ", ") .. " (add ! to override)", vim.log.levels.ERROR)
+    if #dirty > 0 and not bang then
+      vim.notify("E37: No write since last change in " .. table.concat(dirty, ", ") .. " (add ! to override)", vim.log.levels.ERROR)
+      return
+    end
+    close_project()
     return
   end
-  -- Drop the project's buffers, the ZZ and ZQ maps, go back to where we were, and show the projects page
-  local path = M.active.path
-  M.active = nil
-  vim.g.symphony_project = nil
-  pcall(vim.keymap.del, "n", "ZZ")
-  pcall(vim.keymap.del, "n", "ZQ")
-  require("symphony.view").open("projects")
-  for _, buf in ipairs(buffers_under(path)) do
-    pcall(vim.api.nvim_buf_delete, buf, { force = true })
+  -- On a file, leaving means back to the tree, the file's buffer dropped
+  local buf = vim.api.nvim_get_current_buf()
+  if vim.bo[buf].modified and not bang then
+    vim.notify("E37: No write since last change (add ! to override)", vim.log.levels.ERROR)
+    return
   end
-  if M.previous_cwd then
-    pcall(vim.cmd.cd, vim.fn.fnameescape(M.previous_cwd))
+  require("symphony.view").open(tree_page(M.active.path))
+  if vim.bo[buf].buftype == "" and vim.api.nvim_buf_get_name(buf) ~= "" then
+    pcall(vim.api.nvim_buf_delete, buf, { force = true })
   end
 end
 
--- Writes the current buffer then leaves, what :wq means in a project
+-- Writes the current buffer then leaves one level, what :wq means in a project
 function M.write_and_leave(bang)
   if vim.bo.modifiable and vim.bo.buftype == "" and vim.api.nvim_buf_get_name(0) ~= "" then
     vim.cmd.write({ bang = bang })
@@ -122,7 +157,7 @@ function M.write_and_leave(bang)
   M.leave(bang)
 end
 
--- Installs the commands and the command line abbreviations that turn :q and :wq into a return to the projects page
+-- Installs the commands and the command line abbreviations that turn :q, :wq, and :x into a climb back
 function M.setup()
   vim.api.nvim_create_user_command("SymphonyQuit", function(opts)
     M.leave(opts.bang)

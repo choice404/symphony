@@ -47,6 +47,8 @@ const (
 	KindNotify Kind = "notify"
 	// KindEnter means leave the pages and work in a directory, project mode, Path says where and Text names it
 	KindEnter Kind = "enter"
+	// KindEdit means open a file in the editor, Path says which
+	KindEdit Kind = "edit"
 )
 
 // Response is what an action hands back to the plugin
@@ -152,7 +154,7 @@ func (r Response) ToMap() map[string]interface{} {
 	case KindNotify:
 		m["text"] = r.Text
 		m["error"] = r.Error
-	case KindEnter:
+	case KindEnter, KindEdit:
 		m["text"] = r.Text
 		m["path"] = r.Path
 	}

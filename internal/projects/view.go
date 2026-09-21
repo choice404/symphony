@@ -51,6 +51,8 @@ type Projects struct {
 	editors map[int]bool
 	// The next editor number
 	next int
+	// The tree state per project path
+	trees map[string]treeState
 }
 
 /**
@@ -62,7 +64,7 @@ type Projects struct {
  * @return *Projects
  **/
 func New(src Source, scanner *Scanner, recents *Recents) *Projects {
-	return &Projects{src: src, scanner: scanner, recents: recents, editors: map[int]bool{}, next: 1}
+	return &Projects{src: src, scanner: scanner, recents: recents, editors: map[int]bool{}, next: 1, trees: map[string]treeState{}}
 }
 
 /**
@@ -207,13 +209,33 @@ func clip(s string, width int) string {
 }
 
 /**
+ * RenderPath
+ * Renders a tree page, tree/ followed by the project path
+ * @param ctx {context.Context} - the context
+ * @param path {string} - the path below projects
+ * @return view.Page, error
+ **/
+func (p *Projects) RenderPath(ctx context.Context, path string) (view.Page, error) {
+	if strings.HasPrefix(path, treePrefix) {
+		return p.tree(ctx, strings.TrimPrefix(path, treePrefix))
+	}
+	if strings.HasPrefix(path, "new/") {
+		return view.Page{}, fmt.Errorf("projects: a new project page is opened with c")
+	}
+	return view.Page{}, fmt.Errorf("projects: no page %q", path)
+}
+
+/**
  * Act
- * Runs an action from a projects page
+ * Runs an action from a projects page, tree pages have their own set
  * @param ctx {context.Context} - the context
  * @param a {view.Action} - the action
  * @return view.Response, error
  **/
 func (p *Projects) Act(ctx context.Context, a view.Action) (view.Response, error) {
+	if root := treeOf(a.Page); root != "" {
+		return p.treeAct(ctx, root, a)
+	}
 	switch a.Name {
 	case "refresh":
 		return p.show(p.Render(ctx))
