@@ -28,6 +28,8 @@ const (
 	StopMethod = "symphony.stop"
 	// VersionMethod answers the build id of the binary the daemon runs from
 	VersionMethod = "symphony.version"
+	// BrowserStopMethod closes the daemon's browser so a headed window can use its profile
+	BrowserStopMethod = "symphony.browser.stop"
 )
 
 // stopDelay gives the stop reply time to reach the caller before the listener closes
@@ -136,6 +138,12 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		}),
 		ep.Register(ViewsMethod, func() ([]string, error) { return s.reg.Names(), nil }),
 		ep.Register(VersionMethod, func() (string, error) { return s.Version, nil }),
+		ep.Register(BrowserStopMethod, func() (bool, error) {
+			if BrowserEngine != nil {
+				BrowserEngine.Stop()
+			}
+			return true, nil
+		}),
 		ep.Register(StopMethod, func() (bool, error) {
 			time.AfterFunc(stopDelay, s.Stop)
 			return true, nil

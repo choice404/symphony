@@ -108,6 +108,24 @@ local keymaps = {
   discordmessages = {
     ["i"] = { "send", nil, "say: " },
   },
+  discordweb = {},
+  discordchat = {
+    ["i"] = { "send", nil, "say: " },
+  },
+  browser = {
+    ["o"] = { "url", nil, "url: " },
+    ["/"] = { "search", nil, "search: " },
+    ["x"] = { "close" },
+  },
+  browsertab = {
+    ["o"] = { "url", nil, "url: " },
+    ["/"] = { "search", nil, "search: " },
+    ["f"] = { "follow", nil, "link: " },
+    ["gs"] = { "submit" },
+    ["b"] = { "back" },
+    ["F"] = { "forward" },
+    ["x"] = { "close" },
+  },
 }
 
 -- Sets the buffer local keymaps for a page's filetype
@@ -126,9 +144,24 @@ function M.keymaps(buf, filetype)
       M.act(spec[1], spec[2])
     end, { buffer = buf, nowait = true, silent = true })
   end
-  -- The common ones
+  -- The common ones, on a browser page enter asks for a value when the line is a field
   for lhs, spec in pairs(keymaps.common) do
     map(lhs, spec)
+  end
+  if filetype == "browsertab" then
+    vim.keymap.set("n", "<CR>", function()
+      local line = vim.api.nvim_win_get_cursor(0)[1]
+      local key = (vim.b[buf].symphony_keys or {})[line] or ""
+      if key:sub(1, 6) == "field:" then
+        vim.ui.input({ prompt = "value: " }, function(text)
+          if text ~= nil then
+            M.act("open", key, text)
+          end
+        end)
+        return
+      end
+      M.act("open")
+    end, { buffer = buf, nowait = true, silent = true })
   end
   -- The filetype's own
   for lhs, spec in pairs(keymaps[filetype] or {}) do

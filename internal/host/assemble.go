@@ -6,10 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/choice404/symphony/internal/browser"
 	"github.com/choice404/symphony/internal/calendar"
 	"github.com/choice404/symphony/internal/calsync"
 	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/discord"
+	"github.com/choice404/symphony/internal/discordweb"
 	"github.com/choice404/symphony/internal/gitapp"
 	"github.com/choice404/symphony/internal/jev"
 	"github.com/choice404/symphony/internal/mail"
@@ -145,6 +147,30 @@ func (e notSynced) Error() string {
 
 func errNotSynced(a mail.Account) error { return notSynced{name: a.Name} }
 
+// BrowserEngine is the daemon's browser once Views built it, the stop request reaches it here
+var BrowserEngine *browser.Engine
+
+/**
+ * newBrowser
+ * Builds the browser engine from the config, the profile under the data directory so logins survive
+ * @param load {func() config.Config} - returns the current config
+ * @param logf {func(string, ...interface{})} - where log lines go
+ * @return *browser.Engine
+ **/
+func newBrowser(load func() config.Config, logf func(string, ...interface{})) *browser.Engine {
+	exec := load().Browser.Chrome
+	if exec == "" {
+		exec = browser.FindChrome()
+	}
+	if exec == "" {
+		logf("browser: no chromium found, the browser and discord (you) pages are off")
+	}
+	home, _ := os.UserHomeDir()
+	e := browser.New(exec, filepath.Join(home, ".local", "share", "symphony", "browser"))
+	BrowserEngine = e
+	return e
+}
+
 /**
  * newDiscord
  * Builds the discord view, logged in through the bot token when one is on disk, and returns what closes the gateway
@@ -182,23 +208,29 @@ func newDiscord(load func() config.Config, logf func(string, ...interface{})) (*
  * @param cv {*calendar.Calendar} - the calendar view
  * @param pv {*projects.Projects} - the projects view
  * @param dv {*discord.Discord} - the discord view
+ * @param eng {*browser.Engine} - the browser engine behind the browser and discord web views
  * @return view.Registry, error
  **/
-func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *discord.Discord) (view.Registry, error) {
+func assemble(mv *mail.Mail, cv *calendar.Calendar, pv *projects.Projects, dv *discord.Discord, eng *browser.Engine) (view.Registry, error) {
 	// The registry, assigned after home so the opener closes over it
 	var reg view.Registry
+	// The browser and the discord web view share the engine
+	bv := browser.NewView(eng)
+	wv := discordweb.New(discordweb.NewClient(eng))
 	// The home view opens entries through the registry and lists every app's entries, projects first since it is the door to work
 	open := func(ctx context.Context, name string) (view.Page, error) { return reg.Render(ctx, name) }
 	entries := func() []view.Entry {
 		out := append([]view.Entry{}, pv.Entries()...)
 		out = append(out, mv.Entries()...)
 		out = append(out, cv.Entries()...)
-		return append(out, dv.Entries()...)
+		out = append(out, dv.Entries()...)
+		out = append(out, wv.Entries()...)
+		return append(out, bv.Entries()...)
 	}
 	home := view.NewHome(open, entries)
 	// Build the registry, git has no home entry since its pages live under a project
 	var err error
-	reg, err = view.NewRegistry(home, mv, cv, pv, dv, gitapp.New())
+	reg, err = view.NewRegistry(home, mv, cv, pv, dv, wv, bv, gitapp.New())
 	if err != nil {
 		return view.Registry{}, err
 	}

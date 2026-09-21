@@ -7,8 +7,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
+	"github.com/choice404/symphony/internal/browser"
 	"github.com/choice404/symphony/internal/calsync"
 	"github.com/choice404/symphony/internal/config"
 	"github.com/choice404/symphony/internal/host"
@@ -44,6 +46,8 @@ func main() {
 		err = mailCmd(append([]string{"authorize"}, os.Args[2:]...))
 	case "calendar":
 		err = calendarCmd(os.Args[2:])
+	case "browser":
+		err = browserCmd(os.Args[2:])
 	default:
 		err = fmt.Errorf("unknown command %q, symphonyd takes run, stop, status, authorize, mail, or calendar", cmd)
 	}
@@ -217,6 +221,49 @@ func mailCmd(args []string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown mail command %q, symphonyd mail takes authorize or sync", args[0])
+}
+
+/**
+ * browserCmd
+ * Runs the browser subcommands, login [url] opens a real window on the daemon's profile after asking the daemon to let go of it
+ * @param args {[]string} - the words after browser
+ * @return error
+ **/
+func browserCmd(args []string) error {
+	if len(args) == 0 || args[0] != "login" {
+		return fmt.Errorf("symphonyd browser takes login [url]")
+	}
+	target := "https://discord.com/login"
+	if len(args) > 1 {
+		target = args[1]
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	chrome := cfg.Browser.Chrome
+	if chrome == "" {
+		chrome = browser.FindChrome()
+	}
+	if chrome == "" {
+		return fmt.Errorf("no chromium found, install google-chrome, chromium, or brave, or set chrome under [browser]")
+	}
+	// The daemon's headless browser holds the profile, ask it to let go
+	if c, err := connect(); err == nil {
+		var ok bool
+		_ = c.Call(host.BrowserStopMethod, &ok)
+		_ = c.Close()
+	}
+	home, _ := os.UserHomeDir()
+	profile := filepath.Join(home, ".local", "share", "symphony", "browser")
+	fmt.Println("a browser window is opening on symphony's profile, log in there, then close the window")
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := browser.RunHeaded(ctx, chrome, profile, target); err != nil {
+		return err
+	}
+	fmt.Println("done, the daemon starts its browser again on the next page")
+	return nil
 }
 
 /**

@@ -70,6 +70,24 @@ The discord page lists the servers, <CR> opens one to its text channels grouped 
 token_file = "~/.config/symphony/discord.token"
 ```
 
+# Browser
+
+The daemon runs a headless Chromium, google-chrome, chromium, or brave, whichever is on the path or the one chrome names under [browser], with a profile of its own under ~/.local/share/symphony/browser so logins survive. The browser page lists the open tabs, o asks for a url and / for a search, and a tab page is the site read as text, headings marked, every link numbered like [3], every field shown like {2 email: _} and every button like {4 Log in}. <CR> on a link line follows it, <CR> on a field line asks for a value and types it, on a button line clicks it, f asks for a link number, gs presses Enter in the field under the cursor, b and F go back and forward, r reloads, x closes the tab. :Symphony browser example.com opens a url straight away.
+
+Some logins need a real window once, a captcha, a passkey, a security key. symphonyd browser login <url> asks the daemon to let go of the profile, opens a visible browser window on it, and waits until you close the window. The daemon starts its headless browser again on the next page, now logged in.
+
+# Discord, your own account
+
+discord (you) on home is Discord's own web client running inside that browser, so it is your account and the official client makes every request, the same footing as any desktop wrapper. The first open lands on the login page, so run this once and log in with your normal credentials, the captcha and the passkey work in the window:
+
+```
+symphonyd browser login https://discord.com/login
+```
+
+After that the page lists your direct messages and your servers, <CR> opens a server to its channels with unread marked, <CR> on a channel or a direct message shows the visible chat grouped by day, i asks for a line and types it into Discord's own message box. Everything comes from the client's page as it stands, so r reads it again and there is no history beyond what the client has rendered. The bot page stays for anything the daemon does on its own, such as unread counts on home while nothing is open.
+
+The client's page structure is Discord's and changes without notice, so a page that comes up empty after an update means the readers need a refresh, not that the login is gone.
+
 # Calendar
 
 Every account with auth = oauth gets a calendar, the same login covers mail and calendar so one symphonyd authorize does both, and an account authorized before the calendar scope was added needs one more authorize. Home lists an agenda per account and an all agenda, each showing today's count and the next event. An agenda is the next thirty days grouped by day, days under [calendar] changes the span, ]d and [d move a week, gt comes back to today, ]a [a and ga move between accounts, <CR> opens the event with its attendees and link, and D deletes it on the server. c opens a new event page, an editable buffer with the title, start, end, all day, and location fields above a marker and the description below, and gs saves it to the account's own calendar. Times are typed as 2026-03-01 14:00, or as 2026-03-01 with all day set to yes.

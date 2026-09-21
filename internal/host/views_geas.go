@@ -29,12 +29,13 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	src := accounts(load)
 	svc := services(load, logf)
 	dv, closeDiscord := newDiscord(load, logf)
+	eng := newBrowser(load, logf)
 	// Find the module, the contract path is read once since the runtime loads it once
 	module, err := findModule(load())
 	if err != nil {
 		logf("geas: %v, mail runs without the contract", err)
-		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load), dv)
-		return reg, closeDiscord, err
+		reg, err := assemble(mail.New(src, mail.Plain{}, svc), newCalendar(load), newProjects(load), dv, eng)
+		return reg, func() { closeDiscord(); eng.Stop() }, err
 	}
 	// Bring up the runtime and load it
 	rt, err := geas.Init()
@@ -61,13 +62,13 @@ func Views(load func() config.Config, logf func(string, ...interface{})) (view.R
 	}
 	logf("geas: mail runs through %s", module)
 	// Assemble around the contract view
-	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load), dv)
+	reg, err := assemble(mail.New(src, mail.NewContract(rt, labels), svc), newCalendar(load), newProjects(load), dv, eng)
 	if err != nil {
 		rt.Shutdown()
 		closeDiscord()
 		return view.Registry{}, nil, err
 	}
-	return reg, func() { closeDiscord(); rt.Shutdown() }, nil
+	return reg, func() { closeDiscord(); eng.Stop(); rt.Shutdown() }, nil
 }
 
 /**

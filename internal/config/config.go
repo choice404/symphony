@@ -25,8 +25,16 @@ type Config struct {
 	Projects Projects `toml:"projects"`
 	// The discord section
 	Discord Discord `toml:"discord"`
+	// The browser section
+	Browser Browser `toml:"browser"`
 	// The geas section
 	Geas Geas `toml:"geas"`
+}
+
+// Browser is the [browser] section
+type Browser struct {
+	// The chromium binary, found on the path when unset
+	Chrome string `toml:"chrome"`
 }
 
 // Discord is the [discord] section

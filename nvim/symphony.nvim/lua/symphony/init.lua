@@ -82,6 +82,18 @@ commands.discord = function()
   require("symphony.view").open("discord")
 end
 
+-- Opens the browser tabs page, or a url straight away
+commands.browser = function(args)
+  local view = require("symphony.view")
+  -- The tabs page first so q from the new tab lands on it
+  if view.open("browser") == nil then
+    return
+  end
+  if args[1] then
+    view.act("url", nil, args[1])
+  end
+end
+
 -- Opens the projects page
 commands.projects = function()
   require("symphony.view").open("projects")
