@@ -10,19 +10,20 @@ import (
 
 /**
  * accounts
- * Turns the config loader into a mail source, one mail account per configured account
+ * Turns the config loader into a mail source, one mail account per configured account plus the inbox limit
  * @param load {func() config.Config} - returns the current config
  * @return mail.Source
  **/
 func accounts(load func() config.Config) mail.Source {
-	return func() []mail.Account {
-		// The accounts as configured right now
-		cfg := load().Mail.All()
+	return func() mail.Settings {
+		// The accounts and the limit as configured right now
+		m := load().Mail
+		cfg := m.All()
 		out := make([]mail.Account, 0, len(cfg))
 		for _, a := range cfg {
 			out = append(out, mail.Account{Name: a.Name, Dir: a.Maildir})
 		}
-		return out
+		return mail.Settings{Accounts: out, Limit: m.ShowLimit()}
 	}
 }
 

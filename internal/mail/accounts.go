@@ -12,19 +12,41 @@ type Account struct {
 	Dir string
 }
 
-// Source returns the accounts as configured right now, called on every render so a config edit lands without a restart
-type Source func() []Account
+// Settings is what the mail views read from the config on every render
+type Settings struct {
+	// The accounts
+	Accounts []Account
+	// How many of the newest messages the inbox shows, 0 for all
+	Limit int
+}
+
+// Source returns the settings as configured right now, called on every render so a config edit lands without a restart
+type Source func() Settings
 
 /**
  * Fixed
- * Wraps one Maildir as a source with a single unnamed account that never changes, an empty dir is still one account so a contract can report it
+ * Wraps one Maildir as a source with a single unnamed account and no limit that never changes, an empty dir is still one account so a contract can report it
  * @param dir {string} - the Maildir root, empty when not configured
  * @return Source
  **/
 func Fixed(dir string) Source {
-	return func() []Account {
-		return []Account{{Dir: dir}}
+	return func() Settings {
+		return Settings{Accounts: []Account{{Dir: dir}}}
 	}
+}
+
+/**
+ * newest
+ * Keeps the first n messages of a list already sorted newest first, all of them when n is 0
+ * @param msgs {[]Message} - the sorted list
+ * @param n {int} - the limit
+ * @return []Message
+ **/
+func newest(msgs []Message, n int) []Message {
+	if n <= 0 || len(msgs) <= n {
+		return msgs
+	}
+	return msgs[:n]
 }
 
 /**

@@ -24,12 +24,17 @@ const (
 	errUnreadable    = 2
 )
 
+// listsPerInstance is how many list fulfillments an instance serves before it is re-signed, every fulfillment copies its result onto the instance and only a break frees it
+const listsPerInstance = 20
+
 // slot is one signed Mailbox instance for one account
 type slot struct {
 	// The signed instance
 	inst *geas.Instance
 	// The maildir it was signed with, a change re-signs
 	dir string
+	// How many lists this instance has served
+	lists int
 }
 
 // Contract shows mail through one signed Mailbox contract per account, each runtime state is that account's health
@@ -244,7 +249,8 @@ func (c *Contract) list() (msgs []Message, states, errs map[string]string, singl
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	// The accounts as configured right now, an empty maildir still gets an instance so the contract reports not configured
-	accs := c.src()
+	set := c.src()
+	accs := set.Accounts
 	single = len(accs) <= 1
 	states = map[string]string{}
 	errs = map[string]string{}
@@ -270,13 +276,17 @@ func (c *Contract) list() (msgs []Message, states, errs map[string]string, singl
 		states[a.Name] = strings.ToLower(c.slots[a.Name].inst.State().String())
 		all = append(all, got...)
 	}
-	// Newest first across accounts
+	// Newest first across accounts, cut to the limit, then labeled, so only shown messages cost a classify
 	sort.SliceStable(all, func(i, j int) bool {
 		if !all[i].Date.Equal(all[j].Date) {
 			return all[i].Date.After(all[j].Date)
 		}
 		return all[i].Path < all[j].Path
 	})
+	all = newest(all, set.Limit)
+	if c.labels {
+		all = c.classify(all)
+	}
 	// Keep the list for open
 	c.last = all
 	return all, states, errs, single
@@ -289,9 +299,9 @@ func (c *Contract) list() (msgs []Message, states, errs map[string]string, singl
  * @return []Message, error
  **/
 func (c *Contract) listOne(a Account) ([]Message, error) {
-	// A changed maildir breaks the old instance
+	// A changed maildir or a well used instance breaks the old one, the break is what frees every listed message
 	s := c.slots[a.Name]
-	if s != nil && s.dir != a.Dir {
+	if s != nil && (s.dir != a.Dir || s.lists >= listsPerInstance) {
 		_ = s.inst.Break()
 		delete(c.slots, a.Name)
 		s = nil
@@ -315,6 +325,7 @@ func (c *Contract) listOne(a Account) ([]Message, error) {
 		return nil, fmt.Errorf("broken: %s", firstError(s.inst))
 	}
 	// Fulfill list
+	s.lists++
 	v, err := s.inst.Fulfill("list")
 	if err != nil {
 		return nil, fmt.Errorf("list: %w", err)
@@ -323,33 +334,31 @@ func (c *Contract) listOne(a Account) ([]Message, error) {
 	if !r.Ok {
 		return nil, fmt.Errorf("%s: %s", strings.ToLower(s.inst.State().String()), describeError(r.Value))
 	}
-	// Tag and label
+	// Tag
 	msgs := decodeMessages(r.Value)
 	for i := range msgs {
 		msgs[i].Account = a.Name
-	}
-	if c.labels {
-		msgs = classify(s.inst, msgs)
 	}
 	return msgs, nil
 }
 
 /**
  * classify
- * Fulfills classify for every message on an instance and returns a new list carrying the labels
- * @param inst {*geas.Instance} - the account's instance
+ * Fulfills classify for every message on its account's instance and returns a new list carrying the labels
  * @param msgs {[]Message} - the messages
  * @return []Message
  **/
-func classify(inst *geas.Instance, msgs []Message) []Message {
+func (c *Contract) classify(msgs []Message) []Message {
 	// The labeled copies
 	out := make([]Message, 0, len(msgs))
 	for _, m := range msgs {
-		// Ask the plugin
-		v, err := inst.Fulfill("classify", m.From, m.Subject)
-		if err == nil {
-			if r, ok := v.(geas.Result); ok && r.Ok {
-				m.Label = str(r.Value)
+		// Ask the plugin through the account's instance
+		if s := c.slots[m.Account]; s != nil {
+			v, err := s.inst.Fulfill("classify", m.From, m.Subject)
+			if err == nil {
+				if r, ok := v.(geas.Result); ok && r.Ok {
+					m.Label = str(r.Value)
+				}
 			}
 		}
 		out = append(out, m)

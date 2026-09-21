@@ -81,11 +81,14 @@ maildir = "~/Mail/school"
 name = "proton"
 maildir = "~/Mail/proton"
 
+[mail]
+limit = 500
+
 [geas]
 contracts = "~/.local/share/symphony/contracts"
 ```
 
-With more than one account the inbox is one list across all of them newest first with an account column, and the header carries a tag per account, its contract state or its error, so one broken account never hides the others. Home shows the same tags. Each account is its own signed Mailbox contract, so the health you see is per account.
+limit is how many of the newest messages the inbox shows across all accounts, 500 when unset, since a synced Gmail inbox can hold tens of thousands and nobody scrolls that far. With more than one account the inbox is one list across all of them newest first with an account column, and the header carries a tag per account, its contract state or its error, so one broken account never hides the others. Home shows the same tags. Each account is its own signed Mailbox contract, so the health you see is per account.
 
 # Mail accounts and MFA
 
@@ -120,9 +123,12 @@ Near :personal-local:inbox
 Create Near
 Expunge Both
 SyncState *
+MaxMessages 2000
+MaxSize 10m
+ExpireUnread yes
 ```
 
-Then mbsync personal, and the maildir in the symphony config is ~/Mail/personal/inbox. Gmail also takes OAuth2 the same way the school account does below, which is what symphony will use itself once it syncs on its own.
+MaxMessages keeps only the newest 2000 locally, which matters on Gmail where an inbox holds tens of thousands and IMAP is capped at about 2500 MB a day, so a full first sync gets cut off with an OVERQUOTA error. MaxSize skips anything over 10 MB. Then mbsync personal, and the maildir in the symphony config is ~/Mail/personal/inbox. Gmail also takes OAuth2 the same way the school account does below, which is what symphony will use itself once it syncs on its own.
 
 ## University Google Workspace behind Okta, OAuth2
 

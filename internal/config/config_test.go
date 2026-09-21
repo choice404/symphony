@@ -71,3 +71,12 @@ func TestLoadFileAccounts(t *testing.T) {
 		t.Fatalf("accounts = %+v", got)
 	}
 }
+
+func TestShowLimit(t *testing.T) {
+	if (Mail{}).ShowLimit() != DefaultLimit || (Mail{Limit: -1}).ShowLimit() != DefaultLimit {
+		t.Fatal("unset limit should be the default")
+	}
+	if (Mail{Limit: 50}).ShowLimit() != 50 {
+		t.Fatal("set limit should hold")
+	}
+}

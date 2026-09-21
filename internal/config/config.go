@@ -34,6 +34,23 @@ type Mail struct {
 	Maildir string `toml:"maildir"`
 	// The accounts, each a [[mail.accounts]] table
 	Accounts []Account `toml:"accounts"`
+	// How many of the newest messages the inbox shows, 500 when unset
+	Limit int `toml:"limit"`
+}
+
+// DefaultLimit is how many messages the inbox shows when the config says nothing
+const DefaultLimit = 500
+
+/**
+ * ShowLimit
+ * Returns the inbox limit, the default when unset or negative
+ * @return int
+ **/
+func (m Mail) ShowLimit() int {
+	if m.Limit <= 0 {
+		return DefaultLimit
+	}
+	return m.Limit
 }
 
 // Account is one [[mail.accounts]] table

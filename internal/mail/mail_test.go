@@ -163,7 +163,7 @@ func TestViewListAndOpen(t *testing.T) {
 func TestViewFollowsDirChanges(t *testing.T) {
 	// The dir function answers whatever the config says right now
 	dir := ""
-	v := NewView(func() []Account { return Fixed(dir)() })
+	v := NewView(func() Settings { return Fixed(dir)() })
 	ctx := context.Background()
 	if got := v.Summary(ctx); got != "not configured" {
 		t.Fatalf("before = %q", got)
@@ -178,7 +178,9 @@ func TestViewTwoAccounts(t *testing.T) {
 	// Two accounts, the second one a missing directory
 	a := fixture(t)
 	missing := filepath.Join(t.TempDir(), "nope")
-	src := func() []Account { return []Account{{Name: "personal", Dir: a}, {Name: "school", Dir: missing}} }
+	src := func() Settings {
+		return Settings{Accounts: []Account{{Name: "personal", Dir: a}, {Name: "school", Dir: missing}}}
+	}
 	v := NewView(src)
 	ctx := context.Background()
 	// The summary counts the good one and names the failed one
@@ -200,5 +202,18 @@ func TestViewTwoAccounts(t *testing.T) {
 	resp, _ := v.Act(ctx, "open", "personal/1.plain")
 	if resp.Kind != view.KindPage || resp.Page.Name != "mail/personal/1.plain" {
 		t.Fatalf("open = %+v", resp)
+	}
+}
+
+func TestViewLimitKeepsNewest(t *testing.T) {
+	a := fixture(t)
+	src := func() Settings { return Settings{Accounts: []Account{{Dir: a}}, Limit: 2} }
+	p, err := NewView(src).Render(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two header lines then only the two newest
+	if len(p.Lines) != 4 || p.Keys[2] != "4.html" || p.Keys[3] != "3.multi" {
+		t.Fatalf("lines = %d keys = %v", len(p.Lines), p.Keys)
 	}
 }

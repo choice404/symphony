@@ -46,12 +46,13 @@ func (v *View) Name() string {
  **/
 func (v *View) Summary(ctx context.Context) string {
 	// Say so when nothing is configured
-	accs := Configured(v.src())
+	set := v.src()
+	accs := Configured(set.Accounts)
 	if len(accs) == 0 {
 		return "not configured"
 	}
 	// Scan
-	msgs, errs := v.scan(accs)
+	msgs, errs := v.scan(accs, set.Limit)
 	// A lone account that failed is just the error
 	if len(accs) == 1 && len(errs) == 1 {
 		for _, err := range errs {
@@ -78,12 +79,13 @@ func (v *View) Summary(ctx context.Context) string {
  **/
 func (v *View) Render(ctx context.Context) (view.Page, error) {
 	// Explain the config when there is no account
-	accs := Configured(v.src())
+	set := v.src()
+	accs := Configured(set.Accounts)
 	if len(accs) == 0 {
 		return unconfiguredPage, nil
 	}
 	// Scan
-	msgs, errs := v.scan(accs)
+	msgs, errs := v.scan(accs, set.Limit)
 	// A lone account that failed is an error page
 	if len(accs) == 1 && len(errs) == 1 {
 		for _, err := range errs {
@@ -157,13 +159,15 @@ func (v *View) open(key string) (view.Response, error) {
 
 /**
  * scan
- * Reads every account and remembers the merged result for open
+ * Reads every account, keeps the newest up to the limit, and remembers the result for open
  * @param accs {[]Account} - the configured accounts
+ * @param limit {int} - how many to keep, 0 for all
  * @return []Message, map[string]error
  **/
-func (v *View) scan(accs []Account) ([]Message, map[string]error) {
-	// Scan
+func (v *View) scan(accs []Account, limit int) ([]Message, map[string]error) {
+	// Scan and cut
 	msgs, errs := ScanAccounts(accs)
+	msgs = newest(msgs, limit)
 	// Remember the new slice, the old one is left alone
 	v.last.Store(&msgs)
 	return msgs, errs

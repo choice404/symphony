@@ -53,7 +53,7 @@ func listPage(header string, msgs []Message, multi bool) view.Page {
 /**
  * countHeader
  * Formats the inbox counts
- * @param msgs {[]Message} - the messages
+ * @param msgs {[]Message} - the messages shown
  * @return string
  **/
 func countHeader(msgs []Message) string {
